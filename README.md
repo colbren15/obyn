@@ -134,26 +134,25 @@ reinstallazione esplicita.
 
 L’utente ha verificato sull’M50 connessione, aggiornamento dopo riaccensione,
 registrazione, volume e comportamento degli interruttori; l’ultima conferma
-è del 12 settembre 2026. I 141 test automatici coprono backend e coordinamento
+è del 12 settembre 2026. I 147 test automatici coprono backend e coordinamento
 con simulazioni, senza garantire compatibilità con ogni hardware.
 
 I problemi dei Nothing ear (1), sospettati difettosi dall’utente, non sono stati
 risolti né usati come criterio bloccante. Serve un secondo dispositivo
 sicuramente funzionante prima di estendere le garanzie di compatibilità.
-Il pacchetto Arch/KDE include gli ultimi aggiornamenti; il rapporto di verifica
-della release è in `packaging/arch/VERIFY-0.1.1.txt`. Sessione grafica dedicata
-e altre distribuzioni restano da verificare. Il gestore Bluetooth completo di sistema è un’idea
+Il pacchetto Arch/KDE include gli ultimi aggiornamenti. I limiti delle verifiche
+sono descritti nella release. Altre distribuzioni restano da verificare. Il gestore Bluetooth completo di sistema è un’idea
 rimandata, non una funzione annunciata per questa versione.
 
 OBYN è software libero GPL-3.0-or-later. Vedi [LICENSE](LICENSE).
 
 ## Componenti salvati per il riuso
 
-La raccolta autonoma [reusable/obyn-components](reusable/obyn-components/README.md)
-contiene ricerca/monitor BlueZ, audio PipeWire, registrazione, routing reversibile,
-coordinatore e notifier configurabile, con esempi, test e licenza. È disponibile
-anche come [archivio ZIP](reusable/obyn-components-0.1.0.zip). È una copia separata:
-OBYN non la importa e gli aggiornamenti non si sincronizzano automaticamente.
+La raccolta autonoma di dodici moduli contiene backend Bluetooth/audio e
+componenti grafici, con esempi, test e licenza. È disponibile come
+[obyn-components-0.1.0.zip nelle release](https://github.com/colbren15/obyn/releases).
+È una copia separata: OBYN non la importa e gli aggiornamenti non si
+sincronizzano automaticamente.
 
 ## Pacchetto Arch/KDE
 

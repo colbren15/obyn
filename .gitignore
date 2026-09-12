@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.pkg.tar.zst
+*.tar.gz
+*.log
+packaging/arch/src/
+packaging/arch/pkg/

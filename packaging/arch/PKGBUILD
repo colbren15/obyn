@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Pacchetto locale: generare l'archivio con prepare-source.py prima di makepkg.
+pkgname=obyn
+pkgver=0.1.1
+pkgrel=5
+pkgdesc='Only Bluetooth You Need - graphical Bluetooth manager for Linux'
+arch=('x86_64')
+license=('GPL-3.0-or-later')
+depends=('python' 'python-gobject' 'gtk4' 'bluez' 'bluez-utils'
+         'pipewire' 'pipewire-pulse' 'wireplumber' 'libpulse' 'alsa-utils'
+         'util-linux' 'qt6-base' 'kstatusnotifieritem' 'hicolor-icon-theme'
+         'gcc-libs' 'glibc')
+makedepends=('gcc')
+checkdepends=('desktop-file-utils')
+options=('!debug')
+source=("$pkgname-$pkgver.tar.gz")
+# Aggiornato da prepare-source.py usando soltanto file del repository.
+sha256sums=('ec2eb08ff1d72d7918806d235aba425659e34adcda0d080b9088442eca41e60c')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  g++ $CPPFLAGS $CXXFLAGS -std=c++17 -fPIC -pie src/obyn_tray.cpp -o obyn-tray \
+    -I/usr/include/qt6 -I/usr/include/qt6/QtCore -I/usr/include/qt6/QtGui \
+    -I/usr/include/qt6/QtWidgets -I/usr/include/KF6 -I/usr/include/KF6/KStatusNotifierItem \
+    $LDFLAGS -lKF6StatusNotifierItem -lQt6Widgets -lQt6Gui -lQt6Core
+}
+
+check() {
+  cd "$srcdir/$pkgname-$pkgver"
+  python -m py_compile src/obyn.py
+  python -m unittest discover -s tests -q
+  desktop-file-validate data/io.obyn.Bluetooth.desktop
+  test "$(python src/obyn.py --version)" = "OBYN $pkgver"
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  install -Dm755 src/obyn.py "$pkgdir/usr/bin/obyn"
+  install -Dm755 obyn-tray "$pkgdir/usr/bin/obyn-tray"
+  install -Dm644 data/io.obyn.Bluetooth.desktop "$pkgdir/usr/share/applications/io.obyn.Bluetooth.desktop"
+  # Non dipendere dall'ordine del PATH fra /usr/bin e ~/.local/bin.
+  sed -i 's|^Exec=obyn$|Exec=/usr/bin/obyn|' "$pkgdir/usr/share/applications/io.obyn.Bluetooth.desktop"
+  desktop-file-validate "$pkgdir/usr/share/applications/io.obyn.Bluetooth.desktop"
+  install -Dm644 data/io.obyn.Bluetooth.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.obyn.Bluetooth.svg"
+  install -Dm644 data/io.obyn.Bluetooth-symbolic.svg "$pkgdir/usr/share/icons/hicolor/scalable/status/io.obyn.Bluetooth-symbolic.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/obyn/LICENSE"
+  install -Dm644 AUTHORS.md "$pkgdir/usr/share/doc/obyn/AUTHORS.md"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/obyn/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/obyn/CHANGELOG.md"
+}

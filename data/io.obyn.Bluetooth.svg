@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 128 128"><rect x="4" y="4" width="120" height="120" rx="28" fill="#103d3b"/>
+ <g fill="none" stroke-width="4.3" stroke-linecap="round" stroke-linejoin="round">
+ <g transform="translate(39 39) scale(1.52)" stroke="#63dfbb"><rect x="-12" y="-14" width="24" height="28" rx="12"/></g>
+ <g transform="translate(89 39) scale(1.52) rotate(90)" stroke="#eefbf6"><path d="M-11-14V14H1C17 14 17 0 1 0H-11M-11-14H0C15-14 15 0 0 0"/></g>
+ <g transform="translate(39 89) scale(1.52) rotate(270)" stroke="#eefbf6"><path d="M-12 14V-14L12 14V-14"/></g>
+ <g transform="translate(89 89) scale(1.52) rotate(180)" stroke="#63dfbb"><path d="M-12-14 0 0 12-14M0 0V14"/></g></g></svg>

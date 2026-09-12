@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=OBYN
+GenericName=Bluetooth Manager
+Comment=Only Bluetooth You Need
+Exec=obyn
+Icon=io.obyn.Bluetooth
+Categories=Settings;HardwareSettings;
+Keywords=Bluetooth;BlueZ;Headset;Audio;
+Terminal=false
+StartupNotify=true

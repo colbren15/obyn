@@ -2,6 +2,7 @@
 Type=Application
 Name=OBYN
 GenericName=Bluetooth Manager
+GenericName[it]=Gestore Bluetooth
 Comment=Only Bluetooth You Need
 Exec=obyn
 Icon=io.obyn.Bluetooth

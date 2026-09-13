@@ -81,6 +81,17 @@ with tempfile.TemporaryDirectory(prefix='obyn-languages-') as temp:
             assert app.log_pannello.get_visible() and not app.log_eventi
             app._log_finestra_attiva(Mock(is_active=Mock(return_value=False)))
             assert not app.log_pannello.get_visible()
+            # Meter shares the volume allocation and releases its timer on close.
+            prova=m.MessaggioAudio();app.prova_sessione=prova
+            baseline=app.volume_stack.measure(m.Gtk.Orientation.VERTICAL,300).minimum
+            app._avvia_livello(prova)
+            assert app.volume_stack.get_visible_child_name()=='microfono'
+            assert app.volume_stack.measure(m.Gtk.Orientation.VERTICAL,300).minimum==baseline
+            assert app.volume_titolo.get_text()==('Livello microfono' if language=='it' else 'Microphone level')
+            assert app.livello_timer is not None
+            app._cancella_messaggio()
+            assert app.livello_timer is None and app.livello_barra.get_fraction()==0
+            assert app.volume_stack.get_visible_child_name()=='volume'
             app.finestra.destroy();app.quit()
             print('PASS:',language,'labels, device card, minimum width, preference persistence and session log')
     finally:

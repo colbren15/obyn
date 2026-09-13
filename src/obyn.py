@@ -10,6 +10,7 @@ import math
 import os
 import re
 import subprocess
+import struct
 import sys
 import threading
 import time
@@ -663,6 +664,7 @@ class MessaggioAudio:
         self.durata = 0
         self.incompleta = False
         self.processo = None
+        self._livello_posizione = 0
 
     def chiudi(self):
         with self.lock:
@@ -728,6 +730,57 @@ class MessaggioAudio:
                 if processo.poll() is None:
                     processo.kill()
                 processo.wait(timeout=3)
+
+    def livello_ingresso(self):
+        """RMS degli ultimi 100 ms scritti dal recorder, scala -60..0 dBFS.
+
+        Legge il payload anche prima che libsndfile finalizzi le dimensioni
+        RIFF. Nessun secondo flusso audio, nessuna modifica al WAV.
+        """
+        if self.chiuso:
+            return 0.0
+        try:
+            with open(self.percorso, 'rb') as audio:
+                if audio.read(4) != b'RIFF':
+                    return 0.0
+                audio.seek(8)
+                if audio.read(4) != b'WAVE':
+                    return 0.0
+                formato = False
+                while audio.tell() < 65536:
+                    header = audio.read(8)
+                    if len(header) != 8:
+                        return 0.0
+                    tipo, dimensione = struct.unpack('<4sI', header)
+                    if tipo == b'data':
+                        break
+                    if tipo == b'fmt ':
+                        dati = audio.read(min(dimensione, 16))
+                        formato = (len(dati) == 16 and
+                                   struct.unpack('<HHIIHH', dati) == (1, 1, 16000, 32000, 2, 16))
+                        audio.seek(dimensione - len(dati), 1)
+                    else:
+                        audio.seek(dimensione, 1)
+                    audio.seek(dimensione % 2, 1)
+                else:
+                    return 0.0
+                if not formato:
+                    return 0.0
+                inizio = audio.tell()
+                fine = inizio + (os.fstat(audio.fileno()).st_size - inizio) // 2 * 2
+                if fine <= max(inizio, self._livello_posizione):
+                    return 0.0
+                audio.seek(max(inizio, self._livello_posizione, fine - 3200))
+                dati = audio.read(fine - audio.tell())
+                self._livello_posizione = fine
+            campioni = [v[0] for v in struct.iter_unpack('<h', dati)]
+            if not campioni:
+                return 0.0
+            rms = math.sqrt(sum(v * v for v in campioni) / len(campioni)) / 32768
+            return max(0.0, min(1.0, (20 * math.log10(max(rms, 1e-9)) + 60) / 60))
+        except (OSError, ValueError, struct.error):
+            # Header ancora incompleto o file cancellato alla chiusura.
+            return 0.0
 
     def _convalida_messaggio(self):
         # Verificare i campioni realmente presenti, non soltanto l'intestazione.
@@ -830,6 +883,8 @@ class ObynApplication(Gtk.Application):
         self.messaggio_audio = ''
         self.volume_slider = None
         self.volume_label = None
+        self.livello_timer = None
+        self.livello_barra = None
         self.volume_timeout = None
         self.volume_in_aggiornamento = False
         self.volume_trascinamento = False
@@ -970,6 +1025,8 @@ class ObynApplication(Gtk.Application):
         css += '\n@define-color obyn_accent ' + mappa['#63dfbb'] + ';\n'
         css += '.obyn scale.volume-wide:not(:disabled) highlight { background: @obyn_accent; border-color: @obyn_accent; }'
         css += '.obyn scale.volume-wide:not(:disabled) slider { border-color: @obyn_accent; }'
+        css += '.obyn progressbar.input-level trough, .obyn progressbar.input-level progress { min-height: 6px; border-radius: 6px; }'
+        css += '.obyn progressbar.input-level progress { background: @obyn_accent; border-color: @obyn_accent; }'
         # Lo spettro non ruota con la palette: è il riferimento del selettore.
         css += 'popover.obyn-info scale.hue-spectrum trough { min-height: 10px; background: linear-gradient(to right, #df6363, #dfdf63, #63df63, #63dfdf, #6363df, #df63df, #df6363); }'
         self.tema_provider.load_from_data(css.encode())
@@ -1342,6 +1399,7 @@ class ObynApplication(Gtk.Application):
         volume_riga.set_margin_top(4)
         box.append(volume_riga)
         etichetta_volume = Gtk.Label(label=tr('Volume'))
+        self.volume_titolo = etichetta_volume
         etichetta_volume.set_xalign(0)
         etichetta_volume.set_hexpand(True)
         volume_riga.append(etichetta_volume)
@@ -1361,7 +1419,15 @@ class ObynApplication(Gtk.Application):
         eventi_volume.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         eventi_volume.connect('event', self._evento_volume)
         self.volume_slider.add_controller(eventi_volume)
-        box.append(self.volume_slider)
+        self.volume_stack = Gtk.Stack()
+        self.volume_stack.add_named(self.volume_slider, 'volume')
+        self.livello_barra = Gtk.ProgressBar()
+        self.livello_barra.add_css_class('input-level')
+        self.livello_barra.set_valign(Gtk.Align.CENTER)
+        self.livello_barra.set_hexpand(True)
+        self.livello_barra.set_tooltip_text(tr('Livello del microfono registrato, da −60 a 0 dBFS.'))
+        self.volume_stack.add_named(self.livello_barra, 'microfono')
+        box.append(self.volume_stack)
         self.volume_label = Gtk.Label(label='')
         self.volume_label.set_width_chars(5)
         self.volume_label.set_xalign(1)
@@ -2504,6 +2570,7 @@ class ObynApplication(Gtk.Application):
 
     def _registrazione_iniziata(self, prova):
         if prova is self.prova_sessione and not prova.chiuso:
+            self._avvia_livello(prova)
             self._log(tr('Registrazione'), tr('Cattura iniziata'))
             self.audio_info.set_text(tr('Registrazione in corso: parla ora (massimo 10 secondi). Nessun riascolto automatico.'))
             if self.ferma_registrazione_button is not None:
@@ -2511,7 +2578,50 @@ class ObynApplication(Gtk.Application):
                 self.ferma_registrazione_button.set_sensitive(True)
         return False
 
+    def _avvia_livello(self, prova):
+        self._ferma_livello()
+        self.volume_titolo.set_text(tr('Livello microfono'))
+        self.volume_label.set_visible(False)
+        self.volume_stack.set_visible_child_name('microfono')
+        self.livello_obiettivo = 0.0
+        self.livello_ultimo_frame = time.monotonic()
+        self.livello_prossima_lettura = self.livello_ultimo_frame
+        # Animazione a ~30 fps; lettura WAV sempre limitata a 10 Hz.
+        self.livello_timer = GLib.timeout_add(33, self._aggiorna_livello, prova)
+
+    def _aggiorna_livello(self, prova):
+        if prova is not self.prova_sessione or prova.chiuso or prova.stop.is_set():
+            self.livello_timer = None
+            self._ferma_livello()
+            return False
+        ora = time.monotonic()
+        if ora >= self.livello_prossima_lettura:
+            self.livello_obiettivo = prova.livello_ingresso()
+            self.livello_prossima_lettura = ora + 0.1
+        dt = max(0.0, ora - self.livello_ultimo_frame)
+        self.livello_ultimo_frame = ora
+        attuale = self.livello_barra.get_fraction()
+        # Attacco rapido per seguire la voce, discesa morbida tra i blocchi PCM.
+        costante = 0.045 if self.livello_obiettivo > attuale else 0.180
+        valore = attuale + (self.livello_obiettivo - attuale) * (-math.expm1(-dt / costante))
+        if self.livello_obiettivo == 0 and valore < 0.001:
+            valore = 0.0
+        self.livello_barra.set_fraction(valore)
+        return True
+
+    def _ferma_livello(self):
+        if getattr(self, 'livello_timer', None) is not None:
+            GLib.source_remove(self.livello_timer)
+            self.livello_timer = None
+        if getattr(self, 'livello_barra', None) is not None:
+            self.livello_barra.set_fraction(0)
+            self.volume_stack.set_visible_child_name('volume')
+            self.volume_titolo.set_text(tr('Volume'))
+            self.volume_label.set_visible(True)
+
     def _registrazione_finita(self, prova):
+        if prova is self.prova_sessione:
+            self._ferma_livello()
         if prova is self.prova_sessione and self.ferma_registrazione_button is not None:
             self.ferma_registrazione_button.set_visible(False)
         return False
@@ -2524,6 +2634,7 @@ class ObynApplication(Gtk.Application):
             self.ferma_registrazione_button.set_sensitive(False)
 
     def _cancella_messaggio(self):
+        self._ferma_livello()
         self.volume_trascinamento = False
         if self.dialogo_salvataggio is not None:
             self.dialogo_salvataggio.destroy()

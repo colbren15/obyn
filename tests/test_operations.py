@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Regressioni del coordinatore; nessun accesso a Bluetooth, audio o display."""
 import ast
+import os
 import time
 import json
 from pathlib import Path
@@ -44,7 +45,8 @@ class OperationsTest(unittest.TestCase):
             def start(self): owner.workers.append(self.target)
         tree = ast.parse(SOURCE.read_text())
         cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'ObynApplication')
-        ns = dict(time=time, json=json,
+        ns = dict(time=time, json=json, os=os, tr=lambda text: text,
+            ngettext=lambda singular, plural, number: singular if number == 1 else plural,
             Pango=SimpleNamespace(EllipsizeMode=SimpleNamespace(END=3)),
             Gtk=SimpleNamespace(Application=Widget, ListBoxRow=Widget, Box=Widget, Overlay=Widget, GestureClick=Widget, EventControllerKey=Widget, MenuButton=Widget, Popover=Widget, Expander=Widget, Switch=Widget, ToggleButton=Widget, AccessibleProperty=SimpleNamespace(LABEL=1), Align=SimpleNamespace(END=1, START=0, CENTER=2),
                                 Label=Widget, Button=Widget, Orientation=SimpleNamespace(VERTICAL=1)),

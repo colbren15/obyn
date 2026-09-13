@@ -1,4 +1,4 @@
-# Pacchetto locale Arch/KDE — OBYN 0.1.1-5
+# Pacchetto locale Arch/KDE — OBYN 0.1.2-1
 
 Target x86_64. Il pacchetto include app Python, notifier Qt6/KF6, launcher,
 icone, licenza e documentazione. Non contiene configurazioni personali,
@@ -30,7 +30,7 @@ PKGDEST personali; il tar sorgenti e PKGBUILD restano in questa cartella. `makep
 Questi sono comandi da eseguire quando si decide di passare al pacchetto:
 
 ```bash
-sudo pacman -U obyn-0.1.1-5-x86_64.pkg.tar.zst
+sudo pacman -U obyn-0.1.2-1-x86_64.pkg.tar.zst
 ```
 
 Lo stesso comando aggiorna un pacchetto già installato. Rimozione:
@@ -52,7 +52,8 @@ la stessa configurazione utente.
 
 ## Verifiche
 
-147 test automatici passati per la revisione 5, costruita sul sistema Arch
-di sviluppo. La revisione 1 è stata costruita anche in un container Arch
-pulito. Queste verifiche non garantiscono ogni dispositivo o desktop.
+151 test automatici passati in un container Arch pulito. Verificati cataloghi
+italiano/inglese installati, dipendenze del notifier, installazione, aggiornamento
+da 0.1.1-5 con configurazione di prova conservata, reinstallazione e rimozione.
+Queste verifiche non garantiscono ogni dispositivo o desktop.
 I dettagli e i pacchetti sono nelle [release](https://github.com/colbren15/obyn/releases).

@@ -22,9 +22,11 @@ def main():
                   and any(isinstance(t, ast.Name) and t.id == '__version__' for t in n.targets))
     if actual != version:
         raise SystemExit(f'Versione Python {actual} diversa dal PKGBUILD {version}')
-    paths = [Path(n) for n in ('src/obyn.py', 'src/obyn_tray.cpp', 'LICENSE', 'README.md', 'CHANGELOG.md', 'AUTHORS.md')]
+    paths = [Path(n) for n in ('src/obyn.py', 'src/obyn_tray.cpp', 'LICENSE', 'README.md', 'CHANGELOG.md', 'AUTHORS.md', 'README.en.md')]
     paths += [p.relative_to(repo) for p in (repo / 'data').glob('*') if p.is_file()]
     paths += [p.relative_to(repo) for p in (repo / 'tests').glob('*.py')]
+    paths += [p.relative_to(repo) for folder in ('po', 'locale', 'tools')
+              for p in (repo / folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode='w', format=tarfile.USTAR_FORMAT) as tar:
         for rel in sorted(paths):

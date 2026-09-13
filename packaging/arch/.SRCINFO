@@ -1,11 +1,12 @@
 pkgbase = obyn
 	pkgdesc = Only Bluetooth You Need - graphical Bluetooth manager for Linux
-	pkgver = 0.1.1
-	pkgrel = 5
+	pkgver = 0.1.2
+	pkgrel = 1
 	arch = x86_64
 	license = GPL-3.0-or-later
 	checkdepends = desktop-file-utils
 	makedepends = gcc
+	makedepends = gettext
 	depends = python
 	depends = python-gobject
 	depends = gtk4
@@ -23,7 +24,7 @@ pkgbase = obyn
 	depends = gcc-libs
 	depends = glibc
 	options = !debug
-	source = obyn-0.1.1.tar.gz
-	sha256sums = ec2eb08ff1d72d7918806d235aba425659e34adcda0d080b9088442eca41e60c
+	source = obyn-0.1.2.tar.gz
+	sha256sums = 7f03fbc4f5d1117f3da88d21a0b6ad313897b45647cd223d9f4376793a40b151
 
 pkgname = obyn

@@ -15,10 +15,19 @@ int main(int argc, char *argv[]) {
     QApplication application(argc, argv);
     QString obynExecutable;
     QString quitFile;
+    QString openLabel = QStringLiteral("Open OBYN");
+    QString quitLabel = QStringLiteral("Quit OBYN");
+    QString statusLabel = QStringLiteral("Bluetooth management active");
     const QStringList arguments = application.arguments();
     for (int index = 1; index + 1 < arguments.size(); ++index) {
         if (arguments.at(index) == QStringLiteral("--obyn-exec")) {
             obynExecutable = arguments.at(++index);
+        } else if (arguments.at(index) == QStringLiteral("--open-label")) {
+            openLabel = arguments.at(++index);
+        } else if (arguments.at(index) == QStringLiteral("--quit-label")) {
+            quitLabel = arguments.at(++index);
+        } else if (arguments.at(index) == QStringLiteral("--status-label")) {
+            statusLabel = arguments.at(++index);
         } else if (arguments.at(index) == QStringLiteral("--quit-file")) {
             quitFile = arguments.at(++index);
         }
@@ -30,12 +39,12 @@ int main(int argc, char *argv[]) {
     tray.setIconByName(QStringLiteral("io.obyn.Bluetooth-symbolic"));
     tray.setTitle(QStringLiteral("OBYN · Only Bluetooth You Need"));
     tray.setToolTip(QStringLiteral("io.obyn.Bluetooth-symbolic"), QStringLiteral("OBYN"),
-                    QStringLiteral("Gestione Bluetooth attiva"));
+                    statusLabel);
     tray.setStatus(KStatusNotifierItem::Active);
 
     auto *menu = new QMenu;
-    auto *open = menu->addAction(QIcon::fromTheme(QStringLiteral("window-restore")), QStringLiteral("Apri OBYN"));
-    auto *exit = menu->addAction(QIcon::fromTheme(QStringLiteral("application-exit")), QStringLiteral("Esci da OBYN"));
+    auto *open = menu->addAction(QIcon::fromTheme(QStringLiteral("window-restore")), openLabel);
+    auto *exit = menu->addAction(QIcon::fromTheme(QStringLiteral("application-exit")), quitLabel);
     tray.setContextMenu(menu);
 
     const auto showObyn = [&obynExecutable]() {

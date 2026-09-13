@@ -17,7 +17,73 @@ import tempfile
 import wave
 from pathlib import Path
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
+
+import gettext
+
+class LanguageManager:
+    """Explicit language or system locale; unsupported locales fall back to English.
+
+    Italian source messages need no catalog. Supply ordered catalog directories.
+    Persistence and UI refresh belong to the host application. A failed catalog
+    load falls back to source messages and is exposed via ``catalog_loaded``.
+    """
+    supported = ('it', 'en')
+
+    def __init__(self, domain, locale_dirs, *, preference='auto', environ=None):
+        self.domain = domain
+        self.locale_dirs = tuple(Path(p) for p in locale_dirs)
+        self.environ = os.environ if environ is None else environ
+        self.configure(preference)
+
+    @classmethod
+    def resolve(cls, preference='auto', environ=None):
+        if preference in cls.supported:
+            return preference
+        env = os.environ if environ is None else environ
+        # Locale precedence; LANGUAGE is ignored for the untranslated C locale.
+        locale = env.get('LC_ALL') or env.get('LC_MESSAGES') or env.get('LANG') or 'C'
+        if locale.upper() in ('C', 'POSIX', 'C.UTF-8', 'C.UTF8'):
+            return 'en'
+        candidates = (env.get('LANGUAGE') or locale).split(':')
+        for candidate in candidates:
+            language = candidate.split('.')[0].split('@')[0].replace('-', '_').split('_')[0].lower()
+            if language in cls.supported:
+                return language
+        return 'en'
+
+    def configure(self, preference='auto'):
+        self.preference = preference if preference in ('auto', *self.supported) else 'auto'
+        self.language = self.resolve(self.preference, self.environ)
+        self.translation = gettext.NullTranslations()
+        self.catalog_loaded = self.language == 'it'
+        if self.language != 'it':
+            for directory in self.locale_dirs:
+                try:
+                    self.translation = gettext.translation(self.domain, directory, languages=[self.language])
+                    self.catalog_loaded = True
+                    break
+                except (OSError, EOFError, ValueError, UnicodeError):
+                    continue
+        return self.language
+
+    def gettext(self, message):
+        return self.translation.gettext(message)
+
+    def ngettext(self, singular, plural, number):
+        return self.translation.ngettext(singular, plural, number)
+
+
+# Source checkout first; installed copies use their XDG or system data directory.
+_lingue = LanguageManager('obyn', [
+    Path(__file__).resolve().parent.parent / 'locale',
+    (Path('/usr/share/locale') if Path(__file__).resolve().parent == Path('/usr/bin')
+     else Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'obyn/locale'),
+    Path('/usr/share/locale'),
+], preference='it')
+tr = _lingue.gettext
+ngettext = _lingue.ngettext
+
 
 if __name__ == '__main__' and sys.argv[1:] == ['--version']:
     print('OBYN ' + __version__)
@@ -248,10 +314,10 @@ def comando_bt(*argomenti, limite=20):
         testo = '\n'.join(parte for parte in (risultato.stdout, risultato.stderr) if parte).strip()
         testo = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', testo)
         if risultato.returncode:
-            return f'Errore Bluetooth: {testo or "comando non riuscito"}'
+            return tr('Errore Bluetooth: {v0}').format(v0=testo or tr('comando non riuscito'))
         return testo
     except (OSError, subprocess.SubprocessError) as exc:
-        return f'Errore Bluetooth: {exc}'
+        return tr('Errore Bluetooth: {v0}').format(v0=exc)
 
 
 def prepara_bluetooth():
@@ -313,7 +379,7 @@ class RicercaBluez:
             for nome in interfacce:
                 self.oggetti.get(percorso, {}).pop(nome, None)
             if percorso == self.adattatore and self.ADAPTER in interfacce:
-                self.errore_evento = 'Il controller Bluetooth è stato rimosso.'
+                self.errore_evento = tr('Il controller Bluetooth è stato rimosso.')
         elif segnale == 'PropertiesChanged':
             nome, modifiche, invalidate = dati
             proprieta = self.oggetti.setdefault(percorso, {}).setdefault(nome, {})
@@ -324,7 +390,7 @@ class RicercaBluez:
                 self._segna_visto(percorso)
             if percorso == self.adattatore and nome == self.ADAPTER:
                 if modifiche.get('Powered') is False or modifiche.get('Discovering') is False:
-                    self.errore_evento = 'La ricerca Bluetooth si è interrotta sul controller.'
+                    self.errore_evento = tr('La ricerca Bluetooth si è interrotta sul controller.')
         self.modificato = True
 
     def _segna_visto(self, percorso):
@@ -365,7 +431,7 @@ class RicercaBluez:
                 if interfaces.get(self.ADAPTER, {}).get('Address', '').upper() == self.controller
             ), None)
             if self.adattatore is None:
-                raise RuntimeError('Il controller Bluetooth selezionato non è disponibile.')
+                raise RuntimeError(tr('Il controller Bluetooth selezionato non è disponibile.'))
             if ferma.is_set():
                 return
             for interfaccia, segnale in [
@@ -384,7 +450,7 @@ class RicercaBluez:
             attiva = self._chiama(self.adattatore, self.PROPERTIES, 'Get',
                                   GLib.Variant('(ss)', (self.ADAPTER, 'Discovering')))[0]
             if not attiva:
-                raise RuntimeError('BlueZ non ha confermato l’avvio della ricerca.')
+                raise RuntimeError(tr('BlueZ non ha confermato l’avvio della ricerca.'))
             aggiorna(self.dispositivi(), set(self.visti))
             inizio = ultimo_invio = ultima_verifica = time.monotonic()
             while not ferma.is_set() and time.monotonic() - inizio < durata:
@@ -407,7 +473,7 @@ class RicercaBluez:
                     attiva = self._chiama(self.adattatore, self.PROPERTIES, 'Get',
                                           GLib.Variant('(ss)', (self.ADAPTER, 'Discovering')))[0]
                     if not attiva:
-                        raise RuntimeError('La ricerca Bluetooth non è più attiva.')
+                        raise RuntimeError(tr('La ricerca Bluetooth non è più attiva.'))
                     ultima_verifica = ora
                 ferma.wait(0.05)
             aggiorna(self.dispositivi(), set(self.visti))
@@ -433,15 +499,15 @@ class AudioPipewire:
     def comando(argomenti, limite=None):
         timeout = 5 if limite is None else min(5, limite - time.monotonic())
         if timeout < 0.1:
-            raise TimeoutError('Tempo scaduto in attesa dello stato audio.')
+            raise TimeoutError(tr('Tempo scaduto in attesa dello stato audio.'))
         try:
             risultato = subprocess.run(argomenti, text=True, capture_output=True,
                                        timeout=timeout, check=False,
                                        env={**os.environ, 'LC_ALL': 'C.UTF-8', 'TERM': 'dumb'})
         except subprocess.TimeoutExpired as exc:
-            raise TimeoutError('Il sistema audio/Bluetooth non ha risposto entro il tempo disponibile.') from exc
+            raise TimeoutError(tr('Il sistema audio/Bluetooth non ha risposto entro il tempo disponibile.')) from exc
         if risultato.returncode:
-            raise RuntimeError((risultato.stderr or risultato.stdout).strip() or 'Comando audio fallito.')
+            raise RuntimeError((risultato.stderr or risultato.stdout).strip() or tr('Comando audio fallito.'))
         return risultato.stdout
 
     @classmethod
@@ -449,7 +515,7 @@ class AudioPipewire:
         info_bt = cls.comando(['bluetoothctl', 'info', mac], limite)
         match = re.search(r'^\s*Connected:\s*(yes|no)\s*$', info_bt, re.M)
         if not match:
-            raise RuntimeError('Stato Bluetooth non verificabile: ' + info_bt.strip())
+            raise RuntimeError(tr('Stato Bluetooth non verificabile: ') + info_bt.strip())
         stato = {'connected': match.group(1) == 'yes', 'card': None, 'active': None,
                  'profiles': {}, 'sink': None, 'source': None, 'volume': None,
                  'default_sink': None, 'default_source': None}
@@ -517,7 +583,7 @@ class AudioPipewire:
                     cls.comando(['pactl', 'move-' + flusso, str(stream['index']), destinazione])
         server = json.loads(cls.comando(['pactl', '--format=json', 'info']))
         if server.get('default_' + tipo + '_name') != destinazione:
-            raise RuntimeError('Il sistema non ha confermato il dispositivo audio predefinito.')
+            raise RuntimeError(tr('Il sistema non ha confermato il dispositivo audio predefinito.'))
 
     @classmethod
     def imposta_muto(cls, tipo, nome, muto):
@@ -525,7 +591,7 @@ class AudioPipewire:
         nodi = json.loads(cls.comando(['pactl', '--format=json', 'list', tipo + 's']))
         nodo = next((n for n in nodi if n['name'] == nome), None)
         if nodo is None or nodo.get('mute') is not muto:
-            raise RuntimeError('Stato silenziato del dispositivo non confermato dal sistema.')
+            raise RuntimeError(tr('Stato silenziato del dispositivo non confermato dal sistema.'))
 
     @staticmethod
     def appartiene(nodo, carta, mac):
@@ -565,22 +631,22 @@ class AudioPipewire:
         stato = cls.leggi(mac, limite)
         candidati = cls.profili(stato, tipo)
         if not stato['connected'] or not stato['card'] or not candidati:
-            raise RuntimeError('Profilo non disponibile per il dispositivo connesso.')
+            raise RuntimeError(tr('Profilo non disponibile per il dispositivo connesso.'))
         if profilo_esatto is not None and profilo_esatto not in candidati:
-            raise RuntimeError('Il profilo precedente non è più disponibile.')
+            raise RuntimeError(tr('Il profilo precedente non è più disponibile.'))
         profilo = profilo_esatto or (stato['active'] if stato['active'] in candidati else candidati[0])
         if stato['active'] != profilo:
             cls.comando(['pactl', 'set-card-profile', stato['card'], profilo], limite)
         while True:
             if limite - time.monotonic() < 0.1:
-                raise TimeoutError('Cambio profilo non confermato: profilo attivo ' + str(stato.get('active')) + '. Uscita o microfono richiesti non pronti.')
+                raise TimeoutError(tr('Cambio profilo non confermato: profilo attivo ') + str(stato.get('active')) + tr('. Uscita o microfono richiesti non pronti.'))
             stato = cls.leggi(mac, limite)
             if not stato['connected']:
-                raise RuntimeError('Il dispositivo si è disconnesso durante il cambio profilo.')
+                raise RuntimeError(tr('Il dispositivo si è disconnesso durante il cambio profilo.'))
             if stato['active'] == profilo and stato['sink'] and (tipo == 'a2dp' or stato['source']):
                 return stato
             if time.monotonic() >= limite:
-                raise TimeoutError('Il profilo o i nodi audio non sono diventati disponibili entro 15 secondi.')
+                raise TimeoutError(tr('Il profilo o i nodi audio non sono diventati disponibili entro 15 secondi.'))
             time.sleep(min(0.25, max(0, limite - time.monotonic())))
 
 
@@ -611,7 +677,7 @@ class MessaggioAudio:
     def _avvia(self, args, errori):
         with self.lock:
             if self.chiuso:
-                raise RuntimeError('Messaggio cancellato alla chiusura della finestra.')
+                raise RuntimeError(tr('Messaggio cancellato alla chiusura della finestra.'))
             self.processo = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=errori)
             return self.processo
 
@@ -644,15 +710,14 @@ class MessaggioAudio:
                                       if r.strip() != self.percorso).strip()
                 compatibile = codice == 1 and not dettaglio
                 if codice != 0 and not (interrotta and codice == -15) and not compatibile:
-                    raise RuntimeError(f'Registrazione non riuscita (codice {codice}): '
-                                       + (dettaglio or 'registratore terminato in modo inatteso.'))
+                    raise RuntimeError(tr('Registrazione non riuscita (codice {v0}): ').format(v0=codice)
+                                       + (dettaglio or tr('registratore terminato in modo inatteso.')))
                 with self.lock:
                     if self.chiuso:
-                        raise RuntimeError('Registrazione cancellata.')
+                        raise RuntimeError(tr('Registrazione cancellata.'))
                     self._convalida_messaggio()
                     if compatibile and not interrotta and self.durata < 10:
-                        raise RuntimeError('Registrazione interrotta prima del limite '
-                                           '(pw-record: codice 1). Ripeti la prova.')
+                        raise RuntimeError(tr('Registrazione interrotta prima del limite (pw-record: codice 1). Ripeti la prova.'))
                     self.incompleta = scaduta and self.durata < 8
                     self.pronto = True
             except Exception as exc:
@@ -670,12 +735,12 @@ class MessaggioAudio:
         with wave.open(self.percorso, 'rb') as audio:
             canali, larghezza, frequenza = audio.getnchannels(), audio.getsampwidth(), audio.getframerate()
             if (canali, larghezza, frequenza) != (1, 2, 16000):
-                raise RuntimeError('Formato della registrazione inatteso.')
+                raise RuntimeError(tr('Formato della registrazione inatteso.'))
             campioni = audio.readframes(frequenza * 10)
         passo = canali * larghezza
         campioni = campioni[:len(campioni) // passo * passo]
         if not campioni:
-            raise RuntimeError('La registrazione non contiene audio. Ripeti “Prova microfono” in HFP.')
+            raise RuntimeError(tr('La registrazione non contiene audio. Ripeti “Prova microfono” in HFP.'))
         with wave.open(self.percorso, 'wb') as audio:
             audio.setnchannels(canali)
             audio.setsampwidth(larghezza)
@@ -689,7 +754,7 @@ class MessaggioAudio:
             try:
                 if processo.wait(timeout=15) != 0:
                     errori.seek(0)
-                    raise RuntimeError('Riproduzione non riuscita: ' + errori.read().strip())
+                    raise RuntimeError(tr('Riproduzione non riuscita: ') + errori.read().strip())
             finally:
                 if processo.poll() is None:
                     processo.kill()
@@ -724,6 +789,7 @@ class ObynApplication(Gtk.Application):
         self.log_basi = set()
         self.log_buffer = None
         self.log_pannello = None
+        self.log_sfondo = None
         self.log_scroll = None
         self.log_segui = True
         self.log_tick = None
@@ -772,7 +838,7 @@ class ObynApplication(Gtk.Application):
         self.tray_process = None
         self.tray_quit_file = None
         self.tray_watch_id = None
-        self.config_path = Path.home() / '.config' / 'obyn' / 'config.json'
+        self.config_path = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'obyn' / 'config.json'
         self.config = self.carica_config()
 
     def carica_config(self):
@@ -862,14 +928,14 @@ class ObynApplication(Gtk.Application):
         self.menu_tema = Gtk.MenuButton()
         self.menu_tema.add_css_class('obyn-settings')
         self.menu_tema.set_child(self._icona('palette'))
-        self.menu_tema.set_tooltip_text('Tonalità del tema')
-        self.menu_tema.update_property([Gtk.AccessibleProperty.LABEL], ['Tonalità del tema'])
+        self.menu_tema.set_tooltip_text(tr('Tonalità del tema'))
+        self.menu_tema.update_property([Gtk.AccessibleProperty.LABEL], [tr('Tonalità del tema')])
         popover = Gtk.Popover()
         popover.add_css_class('obyn-info')
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for lato in ('top', 'bottom', 'start', 'end'):
             getattr(box, 'set_margin_' + lato)(12)
-        titolo = Gtk.Label(label='Tonalità del tema', xalign=0)
+        titolo = Gtk.Label(label=tr('Tonalità del tema'), xalign=0)
         titolo.add_css_class('heading')
         box.append(titolo)
         self.tema_slider = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 360, 1)
@@ -877,11 +943,11 @@ class ObynApplication(Gtk.Application):
         self.tema_slider.set_draw_value(False)
         self.tema_slider.set_has_origin(False)
         self.tema_slider.add_css_class('hue-spectrum')
-        self.tema_slider.update_property([Gtk.AccessibleProperty.LABEL], ['Tonalità del tema'])
+        self.tema_slider.update_property([Gtk.AccessibleProperty.LABEL], [tr('Tonalità del tema')])
         self.tema_slider.set_value(self.tema_tonalita)
         self.tema_slider.connect('value-changed', self._cambia_tema)
         box.append(self.tema_slider)
-        reset = Gtk.Button(label='Ripristina petrolio')
+        reset = Gtk.Button(label=tr('Ripristina petrolio'))
         reset.connect('clicked', lambda *_: self.tema_slider.set_value(TONALITA_PETROLIO))
         box.append(reset)
         popover.set_child(box)
@@ -907,6 +973,13 @@ class ObynApplication(Gtk.Application):
         # Lo spettro non ruota con la palette: è il riferimento del selettore.
         css += 'popover.obyn-info scale.hue-spectrum trough { min-height: 10px; background: linear-gradient(to right, #df6363, #dfdf63, #63df63, #63dfdf, #6363df, #df63df, #df6363); }'
         self.tema_provider.load_from_data(css.encode())
+        # KDE's user stylesheet has higher priority than application CSS.
+        # Override only our popover links, not the desktop or other controls.
+        link_css = ('popover.obyn-info button.link { color: ' + mappa['#eefbf6'] + '; }'
+                    'popover.obyn-info button.link label { color: inherit; }'
+                    'popover.obyn-info button.link:focus-visible { outline: 2px solid ' +
+                    mappa['#63dfbb'] + '; outline-offset: 2px; }')
+        self.tema_link_provider.load_from_data(link_css.encode())
         # Conserva solo le varianti attive correnti; i widget possiedono il loro GIcon.
         ObynApplication._icone_svg = {k: v for k, v in ObynApplication._icone_svg.items() if not k[0].endswith('-active')}
         for (_, azione), pulsante in self.pulsanti_instradamento.items():
@@ -925,14 +998,16 @@ class ObynApplication(Gtk.Application):
                 self.config.pop('theme_hue', None)
             else:
                 self.config['theme_hue'] = precedente
-            self._conserva_dettaglio('Tema', 'Preferenza non salvata: ' + str(exc))
+            self._conserva_dettaglio(tr('Tema'), tr('Preferenza non salvata: ') + str(exc))
         else:
-            self._log('Tema', f'Tonalità {self.tema_tonalita:.1f}°')
+            self._log(tr('Tema'), tr('Tonalità {v0:.1f}°').format(v0=self.tema_tonalita))
         return False
 
     def do_activate(self):
+        if self.finestra is None:
+            _lingue.configure(self.config.get('language', 'auto'))
         if self.finestra:
-            self._log('Sessione', 'Finestra riaperta dal tray')
+            self._log(tr('Sessione'), tr('Finestra riaperta dal tray'))
             self.finestra.present()
             self._controlla_audio()
             return
@@ -946,6 +1021,9 @@ class ObynApplication(Gtk.Application):
         self.finestra.add_css_class('obyn')
         css = Gtk.CssProvider()
         self.tema_provider = css
+        self.tema_link_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(self.finestra.get_display(),
+            self.tema_link_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 2)
         self.css_base = b'''
             .obyn label:not(.title-2):not(.device-state):not(.obyn-section):not(.heading),
             popover.obyn-info label:not(.heading) { font-family: "Adwaita Sans", "Noto Sans", sans-serif; }
@@ -969,7 +1047,10 @@ class ObynApplication(Gtk.Application):
             .obyn .startup-dot { min-width: 16px; min-height: 16px; border-radius: 50%; background: #103d3b; border: 1px solid #63dfbb; }
             popover.obyn-info > contents { background: #203331; color: #eefbf6; border: 1px solid #568e83; border-radius: 14px; padding: 4px; }
             popover.obyn-info button { background: #2b4541; color: #eefbf6; border: 1px solid #568e83; border-radius: 10px; padding: 9px 13px; }
-            popover.obyn-info button:hover { background: #36574f; }
+            popover.obyn-info button:hover, .obyn .session-log button:hover { background: #36574f; }
+            .obyn .session-log button:focus-visible { outline: 2px solid #63dfbb; outline-offset: 2px; }
+            popover.obyn-info .language-choices button { padding: 7px 5px; }
+            popover.obyn-info .language-choices button:checked { background: #63dfbb; color: #103d3b; border-color: #63dfbb; }
             .obyn .session-log { background: #203331; color: #eefbf6; border: 1px solid #568e83; border-radius: 14px; }
             .obyn .session-log textview, .obyn .session-log textview text { background: transparent; color: #eefbf6; font-family: "Adwaita Sans", "Noto Sans", sans-serif; }
             .obyn .session-log button { background: #2b4541; color: #eefbf6; border: 1px solid #568e83; border-radius: 9px; }
@@ -995,12 +1076,12 @@ class ObynApplication(Gtk.Application):
         # nel vassoio KDE e può continuare a gestire una scansione in corso.
         self.finestra.connect('close-request', self._nascondi_finestra)
 
-        titolo = Gtk.Label(label='Dispositivi Bluetooth')
+        titolo = Gtk.Label(label=tr('Dispositivi Bluetooth'))
         titolo.set_xalign(0)
         titolo.add_css_class('title-2')
         titolo.set_wrap(True)
         root.append(titolo)
-        self.stato = Gtk.Label(label='Premi “Cerca dispositivi” per iniziare.')
+        self.stato = Gtk.Label(label=tr('Premi “Cerca dispositivi” per iniziare.'))
         self.stato.set_xalign(0)
         self.stato.set_wrap(True)
         self.stato.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -1010,26 +1091,23 @@ class ObynApplication(Gtk.Application):
 
         barra = Gtk.Box(spacing=8)
         root.append(barra)
-        cerca = self._bottone_icona('radar', 'Cerca dispositivi', True)
+        cerca = self._bottone_icona('radar', tr('Cerca dispositivi'), True)
         cerca.connect('clicked', self.avvia_scansione)
         barra.append(cerca)
-        self.pulsante_ferma = self._bottone_icona('stop', 'Ferma ricerca', True)
+        self.pulsante_ferma = self._bottone_icona('stop', tr('Ferma ricerca'), True)
         self.pulsante_ferma.set_sensitive(False)
         self.pulsante_ferma.connect('clicked', self.ferma_scansione)
         barra.append(self.pulsante_ferma)
-        aggiorna = self._bottone_icona('refresh', 'Aggiorna elenco', True)
+        aggiorna = self._bottone_icona('refresh', tr('Aggiorna elenco'), True)
         aggiorna.connect('clicked', lambda *_: self.aggiorna_elenco())
         barra.append(aggiorna)
         self.controlli_operazioni.extend([cerca, aggiorna])
         self.menu_impostazioni = Gtk.MenuButton()
         self.menu_impostazioni.set_child(self._icona('settings'))
         self.menu_impostazioni.add_css_class('obyn-settings')
-        self.menu_impostazioni.set_tooltip_text('Informazioni e opzioni del dispositivo selezionato')
-        self.menu_impostazioni.update_property([Gtk.AccessibleProperty.LABEL], ['Opzioni del dispositivo selezionato'])
-        popover = Gtk.Popover()
-        popover.add_css_class('obyn-info')
-        popover.connect('show', self._prepara_opzioni_dispositivo)
-        self.menu_impostazioni.set_popover(popover)
+        self.menu_impostazioni.set_tooltip_text(tr('Informazioni e opzioni del dispositivo selezionato'))
+        self.menu_impostazioni.update_property([Gtk.AccessibleProperty.LABEL], [tr('Opzioni del dispositivo selezionato')])
+        self.menu_impostazioni.set_create_popup_func(self._crea_opzioni_popup)
         barra.append(self.menu_impostazioni)
         self.controlli_operazioni.append(self.menu_impostazioni)
         self._crea_tema(barra)
@@ -1054,7 +1132,7 @@ class ObynApplication(Gtk.Application):
             spazio_sopra.set_can_target(False)
             fascia.append(spazio_sopra)
             freccia = self._bottone_icona('left' if direzione < 0 else 'right',
-                                        'Dispositivi precedenti' if direzione < 0 else 'Dispositivi successivi')
+                                        tr('Dispositivi precedenti') if direzione < 0 else tr('Dispositivi successivi'))
             # Nelle fasce laterali resta la sola freccia, con nome accessibile.
             freccia.set_child(self._icona('left' if direzione < 0 else 'right'))
             freccia.add_css_class('edge-button')
@@ -1070,7 +1148,7 @@ class ObynApplication(Gtk.Application):
         self._aggiorna_frecce(aggiustamento)
         self.crea_controlli_audio(root)
         self._crea_log(overlay)
-        self._log('Sessione', 'Finestra aperta · OBYN ' + __version__)
+        self._log(tr('Sessione'), tr('Finestra aperta · OBYN ') + __version__)
         self.finestra.present()
         self._avvia_tray()
         self.aggiorna_elenco()
@@ -1105,7 +1183,7 @@ class ObynApplication(Gtk.Application):
                         None, None, Gio.DBusSignalFlags.NONE, self._evento_bt)
                 self._aggiorna_stato_bt()
             except GLib.Error as exc:
-                self._mostra_errore_bt('Aggiornamento automatico non disponibile: ' + str(exc))
+                self._mostra_errore_bt(tr('Aggiornamento automatico non disponibile: ') + str(exc))
         Gio.bus_get(Gio.BusType.SYSTEM, None, pronto)
 
     def _evento_bt(self, connessione, mittente, percorso, interfaccia, segnale, parametri):
@@ -1145,7 +1223,7 @@ class ObynApplication(Gtk.Application):
         if generazione != self.audio_generazione or self.operazione is not None:
             return False
         if errore:
-            self._mostra_errore_bt('Stato Bluetooth non aggiornato: ' + errore)
+            self._mostra_errore_bt(tr('Stato Bluetooth non aggiornato: ') + errore)
             return False
         # Non iniziare scansioni o riconnessioni: osservare gli oggetti BlueZ.
         dispositivi = []
@@ -1171,7 +1249,7 @@ class ObynApplication(Gtk.Application):
 
     def _nascondi_finestra(self, *_):
         self._chiudi_log()
-        self._log('Sessione', 'Finestra chiusa nel tray; registrazione temporanea cancellata')
+        self._log(tr('Sessione'), tr('Finestra chiusa nel tray; registrazione temporanea cancellata'))
         self._cancella_messaggio()
         self.finestra.hide()
         return True
@@ -1189,6 +1267,8 @@ class ObynApplication(Gtk.Application):
             self.tray_process = subprocess.Popen([
                 str(eseguibile), '--obyn-exec', str(Path(sys.argv[0]).resolve()),
                 '--quit-file', str(self.tray_quit_file),
+                '--open-label', tr('Apri OBYN'), '--quit-label', tr('Esci da OBYN'),
+                '--status-label', tr('Gestione Bluetooth attiva'),
             ])
         except OSError:
             self.tray_process = None
@@ -1224,17 +1304,17 @@ class ObynApplication(Gtk.Application):
 
     def crea_controlli_audio(self, root):
         riquadro = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        riquadro.append(Gtk.Label(label='Audio Bluetooth', xalign=0))
+        riquadro.append(Gtk.Label(label=tr('Audio Bluetooth'), xalign=0))
         riquadro.add_css_class('obyn-panel')
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
         box.set_margin_top(8); box.set_margin_bottom(8)
         riquadro.append(box)
         root.append(riquadro)
-        self.ferma_registrazione_button = self._bottone_icona('stop', 'Ferma registrazione')
+        self.ferma_registrazione_button = self._bottone_icona('stop', tr('Ferma registrazione'))
         self.ferma_registrazione_button.set_visible(False)
         self.ferma_registrazione_button.connect('clicked', self._ferma_registrazione)
         root.append(self.ferma_registrazione_button)
-        self.audio_info = Gtk.Label(label='Seleziona un dispositivo per i controlli audio.')
+        self.audio_info = Gtk.Label(label=tr('Seleziona un dispositivo per i controlli audio.'))
         self.audio_info.set_xalign(0)
         self.audio_info.set_wrap(True)
         self.audio_info.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
@@ -1243,9 +1323,9 @@ class ObynApplication(Gtk.Application):
         box.append(self.audio_info)
         riga = Gtk.Box(spacing=8)
         box.append(riga)
-        for icona, testo, azione in [('rec', 'Registra fino a 10 secondi: il microfono viene preparato automaticamente', 'test_microfono'),
-                                     ('play', 'Riproduci la registrazione o il suono di prova', 'test_audio'),
-                                     ('save', 'Salva una copia della registrazione', 'salva_messaggio')]:
+        for icona, testo, azione in [('rec', tr('Registra fino a 10 secondi: il microfono viene preparato automaticamente'), 'test_microfono'),
+                                     ('play', tr('Riproduci la registrazione o il suono di prova'), 'test_audio'),
+                                     ('save', tr('Salva una copia della registrazione'), 'salva_messaggio')]:
             pulsante = self._bottone_icona(icona, testo, True)
             pulsante.add_css_class('compact-tool')
             pulsante.connect('clicked', lambda _, a=azione: self.azione_audio(a))
@@ -1253,7 +1333,7 @@ class ObynApplication(Gtk.Application):
             self.pulsanti_audio[azione] = pulsante
             pulsante.set_sensitive(False)
 
-        self.pulsante_log = self._bottone_icona('info', 'Log della sessione', True)
+        self.pulsante_log = self._bottone_icona('info', tr('Log della sessione'), True)
         self.pulsante_log.add_css_class('compact-tool')
         self.pulsante_log.connect('clicked', self._apri_log)
         riga.append(self.pulsante_log)
@@ -1261,7 +1341,7 @@ class ObynApplication(Gtk.Application):
         volume_riga = Gtk.Box(spacing=10)
         volume_riga.set_margin_top(4)
         box.append(volume_riga)
-        etichetta_volume = Gtk.Label(label='Volume')
+        etichetta_volume = Gtk.Label(label=tr('Volume'))
         etichetta_volume.set_xalign(0)
         etichetta_volume.set_hexpand(True)
         volume_riga.append(etichetta_volume)
@@ -1274,8 +1354,7 @@ class ObynApplication(Gtk.Application):
         self.volume_slider.set_value(100)
         self.volume_slider.set_sensitive(False)
         self.volume_slider.set_tooltip_text(
-            'Volume dell’uscita Bluetooth selezionata. In HFP può compensare '
-            'in parte l’attenuazione tipica delle chiamate.'
+            tr('Volume dell’uscita Bluetooth selezionata. In HFP può compensare in parte l’attenuazione tipica delle chiamate.')
         )
         self.volume_slider.connect('value-changed', self._volume_modificato)
         eventi_volume = Gtk.EventControllerLegacy()
@@ -1306,7 +1385,7 @@ class ObynApplication(Gtk.Application):
         if nome != 'elenco' or origine is not None:
             dettagli = ' · '.join(str(a) for a in argomenti if isinstance(a, (str, int, float)))
             self.log_operazione = nome + (' · ' + dettagli if dettagli else '')
-            self._log('Avvio', self.log_operazione)
+            self._log(tr('Avvio'), self.log_operazione)
         self.audio_generazione += 1
         if self.volume_timeout:
             GLib.source_remove(self.volume_timeout)
@@ -1341,7 +1420,7 @@ class ObynApplication(Gtk.Application):
             attivo.attesa(False)
             self.pulsante_in_attesa = None
         if self.log_operazione is not None:
-            self._log('Fine operazione', self.log_operazione)
+            self._log(tr('Fine operazione'), self.log_operazione)
             self.log_operazione = None
         precedente = self.operazione
         self.operazione = None
@@ -1431,7 +1510,7 @@ class ObynApplication(Gtk.Application):
         # Riconoscere messaggi di fallimento, non parole nelle proprietà o
         # nei nomi: “Blocked: no” è un normale campo di bluetoothctl info.
         return bool(re.search(
-            r'^\s*(?:Errore Bluetooth:|Failed\b|Failure\b|Error\b|'
+            r'^\s*(?:Errore Bluetooth:|Bluetooth error:|Failed\b|Failure\b|Error\b|'
             r'org\.bluez\.Error\.|No default controller\b|No agent\b|'
             r'Device\s+[0-9A-F:]{17}\s+(?:not available|not found)\b)',
             esito, re.I | re.M,
@@ -1469,12 +1548,12 @@ class ObynApplication(Gtk.Application):
         if fast_pair:
             parti.append('Google Fast Pair')
         if audio:
-            parti.append('Servizi audio dichiarati')
+            parti.append(tr('Servizi audio dichiarati'))
         elif not uuids:
-            parti.append('Servizi non ancora identificati')
+            parti.append(tr('Servizi non ancora identificati'))
         elif not fast_pair:
-            parti.append('Altri servizi dichiarati')
-        tipo = {'public': 'indirizzo pubblico', 'random': 'indirizzo casuale'}.get(stato.get('address_type'))
+            parti.append(tr('Altri servizi dichiarati'))
+        tipo = {'public': tr('indirizzo pubblico'), 'random': tr('indirizzo casuale')}.get(stato.get('address_type'))
         if tipo:
             parti.append(tipo)
         return ' · '.join(parti)
@@ -1492,7 +1571,7 @@ class ObynApplication(Gtk.Application):
         presenti = {mac for mac, _, _ in dispositivi}
         for mac, nome, _ in self.dispositivi_visualizzati:
             if mac not in presenti:
-                self._log_stato('Bluetooth · ' + nome + ' · ' + mac, 'Non più presente nell’elenco')
+                self._log_stato('Bluetooth · ' + nome + ' · ' + mac, tr('Non più presente nell’elenco'))
         self.dispositivi_visualizzati = [(mac, nome, dict(stato)) for mac, nome, stato in dispositivi]
         self.schede = {}
         self.interruttori_avvio = {}
@@ -1500,8 +1579,8 @@ class ObynApplication(Gtk.Application):
         while (riga := self.lista.get_first_child()) is not None:
             self.lista.remove(riga)
         connessi = sum(bool(stato['connected']) for _, _, stato in dispositivi)
-        self.stato.set_text(f'{len(dispositivi)} dispositiv{"o" if len(dispositivi) == 1 else "i"} nell’elenco Bluetooth; {connessi} conness{"o" if connessi == 1 else "i"}.'
-                            if dispositivi else 'Nessun dispositivo nell’elenco salvato. Premi “Cerca dispositivi”.')
+        self.stato.set_text(ngettext('{count} dispositivo nell’elenco Bluetooth', '{count} dispositivi nell’elenco Bluetooth', len(dispositivi)).format(count=len(dispositivi)) + '; ' + ngettext('{count} connesso.', '{count} connessi.', connessi).format(count=connessi)
+                            if dispositivi else tr('Nessun dispositivo nell’elenco salvato. Premi “Cerca dispositivi”.'))
         for mac, nome, stato in dispositivi:
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             box.add_css_class('device-card')
@@ -1530,15 +1609,15 @@ class ObynApplication(Gtk.Application):
                 spunta.set_pixel_size(18)
                 spunta.set_halign(Gtk.Align.END)
                 spunta.set_valign(Gtk.Align.END)
-                spunta.set_tooltip_text('Associato e autorizzato; la connessione è indicata separatamente.')
+                spunta.set_tooltip_text(tr('Associato e autorizzato; la connessione è indicata separatamente.'))
                 simbolo.add_overlay(spunta)
-            simbolo.set_tooltip_text('Associato e autorizzato' if stato['paired'] and stato['trusted'] else
-                                    'Associato; da autorizzare' if stato['paired'] else
-                                    'Autorizzato; da associare' if stato['trusted'] else 'Da associare')
+            simbolo.set_tooltip_text(tr('Associato e autorizzato') if stato['paired'] and stato['trusted'] else
+                                    tr('Associato; da autorizzare') if stato['paired'] else
+                                    tr('Autorizzato; da associare') if stato['trusted'] else tr('Da associare'))
             testata.append(simbolo)
             titoli = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             titoli.set_hexpand(True)
-            stato_label = Gtk.Label(label='Connesso' if stato['connected'] else 'Disconnesso' if stato['paired'] else 'Da associare', xalign=0)
+            stato_label = Gtk.Label(label=tr('Connesso') if stato['connected'] else tr('Disconnesso') if stato['paired'] else tr('Da associare'), xalign=0)
             stato_label.add_css_class('device-state')
             titoli.append(stato_label)
             nome_label = Gtk.Label(label=nome, xalign=0)
@@ -1559,16 +1638,16 @@ class ObynApplication(Gtk.Application):
             pista.append(punto)
             interruttore.set_child(pista)
             interruttore.set_active(self.config.get('auto_connect') == mac)
-            interruttore.set_tooltip_text('Connetti all’apertura di OBYN: un solo dispositivo alla volta.')
-            interruttore.update_property([Gtk.AccessibleProperty.LABEL], ['Connetti ' + nome + ' all’apertura di OBYN'])
+            interruttore.set_tooltip_text(tr('Connetti all’apertura di OBYN: un solo dispositivo alla volta.'))
+            interruttore.update_property([Gtk.AccessibleProperty.LABEL], [tr('Connetti {name} all’apertura di OBYN').format(name=nome)])
             interruttore.connect('toggled', lambda b, m=mac: self._imposta_avvio(b, b.get_active(), m))
             self.interruttori_avvio[mac] = interruttore
             testata.append(interruttore)
             box.append(testata)
             if mac.upper() in self.visti_scansione:
-                presenza = 'Rilevato ora' if self.scansione else 'Rilevato nell’ultima ricerca'
+                presenza = tr('Rilevato ora') if self.scansione else tr('Rilevato nell’ultima ricerca')
             else:
-                presenza = 'Presenza non verificata dalla ricerca'
+                presenza = tr('Presenza non verificata dalla ricerca')
             indirizzo = Gtk.Label(label=mac, xalign=0, selectable=True)
             indirizzo.set_focusable(False)
             self.log_ancora = indirizzo
@@ -1578,17 +1657,17 @@ class ObynApplication(Gtk.Application):
             azioni = Gtk.Box(spacing=6)
             azioni.add_css_class('device-actions')
             box.append(azioni)
-            self._pulsante(azioni, 'Disconnetti' if stato['connected'] else 'Connetti',
+            self._pulsante(azioni, tr('Disconnetti') if stato['connected'] else tr('Connetti'),
                            'disconnect' if stato['connected'] else 'connect', mac)
             if not (stato['paired'] and stato['trusted']):
-                self._pulsante(azioni, 'Completa autorizzazione' if stato['paired'] else 'Associa e autorizza', 'pair_trust', mac)
-            for icona, testo, azione in [('output', 'Usa come uscita audio', 'uscita'), ('mic', 'Usa come microfono', 'microfono')]:
+                self._pulsante(azioni, tr('Completa autorizzazione') if stato['paired'] else tr('Associa e autorizza'), 'pair_trust', mac)
+            for icona, testo, azione in [('output', tr('Usa come uscita audio'), 'uscita'), ('mic', tr('Usa come microfono'), 'microfono')]:
                 pulsante = self._bottone_icona(icona, testo, True, True)
                 pulsante.set_sensitive(bool(stato['connected']))
                 pulsante.connect('clicked', lambda _, a=azione, m=mac, n=nome: self._commuta_scheda(a, m, n))
                 self.pulsanti_instradamento[(mac, azione)] = pulsante
                 azioni.append(pulsante)
-            self._pulsante(azioni, 'Dimentica', 'remove', mac)
+            self._pulsante(azioni, tr('Dimentica'), 'remove', mac)
             dettagli = self._dicitura_dispositivo(stato) + '\n' + presenza + '\n' + mac
             indirizzo.set_tooltip_text(dettagli)
             self.lista.append(box)
@@ -1653,10 +1732,10 @@ class ObynApplication(Gtk.Application):
             self.connessione_in_corso = False
             if self.pulsante_ferma is not None:
                 self.pulsante_ferma.set_sensitive(True)
-            self.stato.set_text(f'Cerco {mac} prima di connetterlo (massimo 30 secondi)…')
+            self.stato.set_text(tr('Cerco {v0} prima di connetterlo (massimo 30 secondi)…').format(v0=mac))
             self._avvia_operazione('ricerca_connessione', self._cerca_e_connetti, mac)
         elif self._avvia_operazione('bluetooth', self._azione, azione, mac):
-            descrizione = {'pair_trust': 'Associazione e autorizzazione', 'remove': 'Rimozione', 'disconnect': 'Disconnessione'}.get(azione, azione)
+            descrizione = {'pair_trust': tr('Associazione e autorizzazione'), 'remove': 'Rimozione', 'disconnect': tr('Disconnessione')}.get(azione, azione)
             self.stato.set_text(f'{descrizione}…')
 
     def _cerca_e_connetti(self, mac):
@@ -1669,16 +1748,16 @@ class ObynApplication(Gtk.Application):
             if self._errore_comando_bt(preparazione):
                 raise RuntimeError(preparazione)
             if self.ferma_scansione_evento.is_set():
-                raise RuntimeError('Ricerca annullata: connessione non tentata.')
+                raise RuntimeError(tr('Ricerca annullata: connessione non tentata.'))
             controller = comando_bt('show')
             match = re.search(r'^Controller\s+([0-9A-F:]{17})', controller, re.M | re.I)
             if not match:
-                raise RuntimeError('Controller Bluetooth non disponibile. ' + controller)
+                raise RuntimeError(tr('Controller Bluetooth non disponibile. ') + controller)
             ricerca = RicercaBluez(match.group(1))
             ricerca.esegui(self.ferma_scansione_evento, lambda *_: None, obiettivo=mac)
             # esegui rilascia la propria sessione prima del comando connect.
             if self.ferma_scansione_evento.is_set():
-                raise RuntimeError('Ricerca annullata: connessione non tentata.')
+                raise RuntimeError(tr('Ricerca annullata: connessione non tentata.'))
             rilevato = mac.upper() in ricerca.visti
             if not rilevato:
                 # La discovery non è una prova di raggiungibilità dei dispositivi
@@ -1691,10 +1770,9 @@ class ObynApplication(Gtk.Application):
                     GLib.idle_add(self._azione_completata, '')
                     return
                 if not stato['paired']:
-                    raise RuntimeError('Dispositivo non rilevato e non associato: connessione non tentata. '
-                                       'Attiva la modalità di associazione e ripeti la ricerca.')
+                    raise RuntimeError(tr('Dispositivo non rilevato e non associato: connessione non tentata. Attiva la modalità di associazione e ripeti la ricerca.'))
             if self.ferma_scansione_evento.is_set():
-                raise RuntimeError('Ricerca annullata: connessione non tentata.')
+                raise RuntimeError(tr('Ricerca annullata: connessione non tentata.'))
             self.connessione_in_corso = True
             GLib.idle_add(self._dispositivo_trovato, mac, rilevato)
             self._azione('connect', mac)
@@ -1706,8 +1784,8 @@ class ObynApplication(Gtk.Application):
             self.visti_scansione.add(mac.upper())
         if self.pulsante_ferma is not None:
             self.pulsante_ferma.set_sensitive(False)
-        self.stato.set_text(f'Dispositivo rilevato. Connessione a {mac} in corso…' if rilevato else
-                            f'Dispositivo associato non rilevato: tentativo di connessione diretta a {mac}…')
+        self.stato.set_text(tr('Dispositivo rilevato. Connessione a {v0} in corso…').format(v0=mac) if rilevato else
+                            tr('Dispositivo associato non rilevato: tentativo di connessione diretta a {v0}…').format(v0=mac))
         return False
 
     def _azione(self, azione, mac):
@@ -1717,7 +1795,7 @@ class ObynApplication(Gtk.Application):
         esito = comando_bt(azione, mac)
         if azione == 'connect' and 'timed out' in esito.lower():
             GLib.idle_add(self._conserva_dettaglio, 'Bluetooth', esito)
-            GLib.idle_add(self.stato.set_text, 'Connessione in attesa: verifico lo stato del dispositivo…')
+            GLib.idle_add(self.stato.set_text, tr('Connessione in attesa: verifico lo stato del dispositivo…'))
             for _ in range(5):
                 info = comando_bt('info', mac, limite=2)
                 if not self._errore_comando_bt(info) and self._stato_info(info)['connected']:
@@ -1725,7 +1803,7 @@ class ObynApplication(Gtk.Application):
                     break
                 time.sleep(1)
         if self._errore_comando_bt(esito):
-            GLib.idle_add(self._azione_completata, esito or f'Operazione {azione} non riuscita.')
+            GLib.idle_add(self._azione_completata, esito or tr('Operazione {v0} non riuscita.').format(v0=azione))
             return
         if azione == 'remove' and self.config.get('auto_connect') == mac:
             self.config.pop('auto_connect', None)
@@ -1753,9 +1831,9 @@ class ObynApplication(Gtk.Application):
                     raise RuntimeError(esito)
                 stato = stato_attuale()
                 if not stato[campo]:
-                    raise RuntimeError('Associazione non confermata.' if campo == 'paired' else 'Autorizzazione non confermata.')
+                    raise RuntimeError(tr('Associazione non confermata.') if campo == 'paired' else tr('Autorizzazione non confermata.'))
             if not (stato['paired'] and stato['trusted']):
-                raise RuntimeError('Associazione e autorizzazione non entrambe confermate.')
+                raise RuntimeError(tr('Associazione e autorizzazione non entrambe confermate.'))
             errore = ''
         except Exception as exc:
             errore = str(exc)
@@ -1772,31 +1850,31 @@ class ObynApplication(Gtk.Application):
         testo = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', str(messaggio)).strip()
         basso = testo.lower()
         if 'paplay' in basso and 'timed out' in basso:
-            return 'La riproduzione non è terminata entro 15 secondi. Il dispositivo può risultare connesso anche se il flusso audio è bloccato. Prova a disconnetterlo e riconnetterlo.'
+            return tr('La riproduzione non è terminata entro 15 secondi. Il dispositivo può risultare connesso anche se il flusso audio è bloccato. Prova a disconnetterlo e riconnetterlo.')
         for segnali, spiegazione in [
-            (('br-connection-page-timeout',), 'Il dispositivo non ha risposto alla connessione. Verifica che sia acceso e vicino al PC, poi riprova.'),
-            (('authenticationfailed', 'authenticationrejected', 'authenticationcanceled'), 'Associazione non completata. Attiva la modalità di associazione sul dispositivo e riprova.'),
-            (('notready', 'rfkill'), 'Il Bluetooth non è pronto. Verifica che sia acceso e che la modalità aereo sia disattivata.'),
-            (('notauthorized', 'accessdenied', 'permission denied'), 'Il sistema non ha autorizzato questa operazione.'),
-            (('serviceunknown', 'namehasnoowner', 'connection refused'), 'Il servizio Bluetooth o audio non è raggiungibile.'),
-            (('inprogress',), 'È già in corso un’operazione sul dispositivo. Attendi e riprova.'),
-            (('timed out', 'timeout', 'tempo scaduto'), 'Il sistema non ha confermato l’operazione in tempo. Lo stato attuale viene verificato separatamente.'),
+            (('br-connection-page-timeout',), tr('Il dispositivo non ha risposto alla connessione. Verifica che sia acceso e vicino al PC, poi riprova.')),
+            (('authenticationfailed', 'authenticationrejected', 'authenticationcanceled'), tr('Associazione non completata. Attiva la modalità di associazione sul dispositivo e riprova.')),
+            (('notready', 'rfkill'), tr('Il Bluetooth non è pronto. Verifica che sia acceso e che la modalità aereo sia disattivata.')),
+            (('notauthorized', 'accessdenied', 'permission denied'), tr('Il sistema non ha autorizzato questa operazione.')),
+            (('serviceunknown', 'namehasnoowner', 'connection refused'), tr('Il servizio Bluetooth o audio non è raggiungibile.')),
+            (('inprogress',), tr('È già in corso un’operazione sul dispositivo. Attendi e riprova.')),
+            (('timed out', 'timeout', 'tempo scaduto'), tr('Il sistema non ha confermato l’operazione in tempo. Lo stato attuale viene verificato separatamente.')),
         ]:
             if any(segnale in basso for segnale in segnali):
                 return spiegazione
         if any(segnale in basso for segnale in ('org.bluez', 'traceback', '/tmp/', 'command [', 'failed')):
-            return 'Consulta il log della sessione per la diagnosi.'
-        for prefisso in ('Operazione audio non riuscita: ', 'Operazione Bluetooth non riuscita: ', 'Errore Bluetooth: '):
+            return tr('Consulta il log della sessione per la diagnosi.')
+        for prefisso in (tr('Operazione audio non riuscita: '), tr('Operazione Bluetooth non riuscita: '), tr('Errore Bluetooth: ')):
             testo = testo.removeprefix(prefisso)
         return testo
 
     def _conserva_dettaglio(self, ambito, messaggio):
         self.diagnostica[ambito] = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', str(messaggio))
-        self._log(ambito + ' · errore', self.diagnostica[ambito])
+        self._log(ambito + tr(' · errore'), self.diagnostica[ambito])
 
     def _copia_dettagli(self, pulsante):
         self.finestra.get_clipboard().set('\n'.join(self.log_eventi))
-        pulsante.set_tooltip_text('Log copiato negli appunti')
+        pulsante.set_tooltip_text(tr('Log copiato negli appunti'))
 
     def _cancella_log(self, *_):
         self.log_eventi.clear()
@@ -1836,15 +1914,29 @@ class ObynApplication(Gtk.Application):
             if isinstance(prima, dict) and isinstance(dopo, dict):
                 delta = {k: v for k, v in dopo.items() if k not in prima or prima[k] != v}
                 rimossi = [k for k in prima if k not in dopo]
-                dettaglio = 'Modifiche: ' + json.dumps(delta, ensure_ascii=False, sort_keys=True)
+                dettaglio = tr('Modifiche: ') + json.dumps(delta, ensure_ascii=False, sort_keys=True)
                 if rimossi:
-                    dettaglio += ' · Campi rimossi: ' + ', '.join(sorted(rimossi))
+                    dettaglio += tr(' · Campi rimossi: ') + ', '.join(sorted(rimossi))
         except (TypeError, ValueError):
             pass
         self.log_basi.add(chiave)
         self._log(chiave, dettaglio)
 
     def _crea_log(self, overlay):
+        # Transparent dismissal layer: an outside click closes the log without
+        # activating a device or audio control underneath it.
+        sfondo = Gtk.DrawingArea(hexpand=True, vexpand=True)
+        sfondo.set_halign(Gtk.Align.FILL)
+        sfondo.set_valign(Gtk.Align.FILL)
+        sfondo.set_size_request(1, 1)
+        sfondo.set_visible(False)
+        clic_fuori = Gtk.GestureClick()
+        clic_fuori.set_button(0)
+        clic_fuori.connect('pressed', self._clic_fuori_log)
+        sfondo.add_controller(clic_fuori)
+        overlay.add_overlay(sfondo)
+        self.log_sfondo = sfondo
+        self.finestra.connect('notify::is-active', self._log_finestra_attiva)
         pannello = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         pannello.add_css_class('session-log')
         pannello.set_size_request(300, -1)
@@ -1858,21 +1950,21 @@ class ObynApplication(Gtk.Application):
         pannello.append(interno)
         interno.set_vexpand(True)
         barra = Gtk.Box(spacing=6)
-        titolo = Gtk.Label(label='Log della sessione', xalign=0, hexpand=True)
+        titolo = Gtk.Label(label=tr('Log della sessione'), xalign=0, hexpand=True)
         titolo.add_css_class('heading')
         barra.append(titolo)
         chiudi = Gtk.Button(label='×')
-        chiudi.set_tooltip_text('Chiudi log')
+        chiudi.set_tooltip_text(tr('Chiudi log'))
         chiudi.connect('clicked', lambda *_: self._chiudi_log())
         barra.append(chiudi)
         interno.append(barra)
-        copia = Gtk.Button(label='Copia tutto')
+        copia = Gtk.Button(label=tr('Copia tutto'))
         copia.connect('clicked', self._copia_dettagli)
         azioni = Gtk.Box(spacing=6)
         copia.set_hexpand(True)
         azioni.append(copia)
-        cancella = Gtk.Button(label='Cancella')
-        cancella.set_tooltip_text('Cancella storico della sessione')
+        cancella = Gtk.Button(label=tr('Cancella'))
+        cancella.set_tooltip_text(tr('Cancella storico della sessione'))
         cancella.connect('clicked', self._cancella_log)
         cancella.set_hexpand(True)
         azioni.append(cancella)
@@ -1924,6 +2016,7 @@ class ObynApplication(Gtk.Application):
         segui = self.log_segui
         self._aggiorna_log_testo()
         self._posiziona_log()
+        self.log_sfondo.set_visible(True)
         self.log_pannello.set_visible(True)
         self.log_tick = GLib.timeout_add(150, self._posiziona_log)
         GLib.timeout_add(60, self._log_aperto, segui)
@@ -1935,18 +2028,28 @@ class ObynApplication(Gtk.Application):
             self._log_dimensioni(self.log_scroll.get_vadjustment())
         return False
 
+    def _clic_fuori_log(self, gesture, *_):
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._chiudi_log()
+
+    def _log_finestra_attiva(self, window, *_):
+        if not window.is_active():
+            self._chiudi_log()
+
     def _chiudi_log(self):
         if self.log_tick is not None:
             GLib.source_remove(self.log_tick)
             self.log_tick = None
         if self.log_pannello is not None:
             self.log_pannello.set_visible(False)
+        if self.log_sfondo is not None:
+            self.log_sfondo.set_visible(False)
         return True
 
     def _mostra_errore_bt(self, messaggio):
         self._conserva_dettaglio('Bluetooth', messaggio)
         if self.stato:
-            self.stato.set_text('Ultimo tentativo Bluetooth non riuscito: ' + self._errore_leggibile(messaggio))
+            self.stato.set_text(tr('Ultimo tentativo Bluetooth non riuscito: ') + self._errore_leggibile(messaggio))
         return False
 
     def seleziona_audio(self, mac, nome):
@@ -1956,7 +2059,7 @@ class ObynApplication(Gtk.Application):
             GLib.source_remove(self.volume_timeout)
             self.volume_timeout = None
         self.audio_generazione += 1
-        self._log('Selezione', nome + ' · ' + mac)
+        self._log(tr('Selezione'), nome + ' · ' + mac)
         self.dispositivo_audio = mac
         self.nome_dispositivo_audio = nome
         for indirizzo, scheda in self.schede.items():
@@ -1981,7 +2084,7 @@ class ObynApplication(Gtk.Application):
                 threading.Thread(target=self._leggi_instradamento, args=(self.audio_generazione,), daemon=True).start()
             except Exception as exc:
                 self.lettura_instradamento = False
-                self._conserva_dettaglio('Audio', 'Lettura instradamento non avviata: ' + str(exc))
+                self._conserva_dettaglio('Audio', tr('Lettura instradamento non avviata: ') + str(exc))
         if self.dispositivo_audio and self.operazione is None and self.volume_timeout is None:
             self.aggiorna_info_audio()
         return True
@@ -2018,15 +2121,15 @@ class ObynApplication(Gtk.Application):
                 pulsante.add_css_class('route-active')
             else:
                 pulsante.remove_css_class('route-active')
-            testo = ('Disattiva: torna al precedente, oppure silenzia' if attivo else
-                     'Usa come uscita audio' if tipo == 'sink' else 'Usa come microfono')
+            testo = (tr('Disattiva: torna al precedente, oppure silenzia') if attivo else
+                     tr('Usa come uscita audio') if tipo == 'sink' else tr('Usa come microfono'))
             pulsante.set_tooltip_text(testo)
             pulsante.set_active(attivo)
 
     def _commuta_instradamento(self, mac, tipo):
         stato = AudioPipewire.leggi(mac)
         if not stato['connected']:
-            raise RuntimeError('Il dispositivo è disconnesso.')
+            raise RuntimeError(tr('Il dispositivo è disconnesso.'))
         prima = AudioPipewire.instradamento()[tipo]
         corrente = next((n for n in prima['nodes'] if n['name'] == prima['default']), None)
         chiave = (mac, tipo)
@@ -2051,7 +2154,7 @@ class ObynApplication(Gtk.Application):
                 stato = AudioPipewire.cambia_profilo(mac, 'hfp')
             destinazione = stato[tipo]
             if not destinazione:
-                raise RuntimeError('Uscita o microfono non disponibile sul dispositivo.')
+                raise RuntimeError(tr('Uscita o microfono non disponibile sul dispositivo.'))
         AudioPipewire.sposta_predefinito(tipo, destinazione, prima['default'])
         if not spegni:
             AudioPipewire.imposta_muto(tipo, destinazione, False)
@@ -2067,14 +2170,14 @@ class ObynApplication(Gtk.Application):
         try:
             threading.Thread(target=self._leggi_audio_worker, args=(mac, generazione), daemon=True).start()
         except Exception as exc:
-            self._ricevi_lettura_audio(mac, generazione, {}, f'Stato audio non disponibile: {exc}')
+            self._ricevi_lettura_audio(mac, generazione, {}, tr('Stato audio non disponibile: {v0}').format(v0=exc))
 
     def _leggi_audio_worker(self, mac, generazione):
         try:
             stato = AudioPipewire.leggi(mac)
             messaggio = None
         except Exception as exc:
-            stato, messaggio = {}, f'Stato audio non disponibile: {exc}'
+            stato, messaggio = {}, tr('Stato audio non disponibile: {v0}').format(v0=exc)
         GLib.idle_add(self._ricevi_lettura_audio, mac, generazione, stato, messaggio)
 
     def _ricevi_lettura_audio(self, mac, generazione, stato, messaggio):
@@ -2089,9 +2192,9 @@ class ObynApplication(Gtk.Application):
     def _ricevi_audio(self, mac, stato, messaggio):
         if mac != self.dispositivo_audio:
             return False
-        self._log_stato('Audio · ' + mac, json.dumps(stato, ensure_ascii=False, sort_keys=True))
+        self._log_stato(tr('Audio · ') + mac, json.dumps(stato, ensure_ascii=False, sort_keys=True))
         if messaggio:
-            self._log('Esito audio · ' + mac, messaggio)
+            self._log(tr('Esito audio · ') + mac, messaggio)
         self.stato_audio = stato
         if self.operazione == 'volume' and stato.get('connected'):
             # Conserva l'esito, senza ricostruire testi/controlli ad ogni passo.
@@ -2106,44 +2209,43 @@ class ObynApplication(Gtk.Application):
                     break
         if messaggio is not None:
             self.messaggio_audio = messaggio
-        elif self.messaggio_audio.startswith('Stato audio non disponibile:'):
+        elif self.messaggio_audio.startswith(tr('Stato audio non disponibile:')):
             self.messaggio_audio = ''
         dettagli = ''
         if not stato:
-            descrizione = 'Stato audio non verificato.'
+            descrizione = tr('Stato audio non verificato.')
         elif not stato['connected']:
-            descrizione = 'Dispositivo disconnesso.'
+            descrizione = tr('Dispositivo disconnesso.')
         elif not stato['card']:
-            descrizione = 'Preparazione audio in corso…'
+            descrizione = tr('Preparazione audio in corso…')
         else:
             tipo = AudioPipewire.tipo_profilo(stato['active'])
-            descrizione = {'a2dp': 'Ascolto (A2DP)', 'hfp': 'Voce e microfono (HFP)'}.get(tipo, 'Modalità non verificata')
+            descrizione = {'a2dp': tr('Ascolto (A2DP)'), 'hfp': tr('Voce e microfono (HFP)')}.get(tipo, tr('Modalità non verificata'))
             if not stato['sink']:
-                descrizione += '\nUscita audio non ancora disponibile.'
+                descrizione += tr('\nUscita audio non ancora disponibile.')
             if tipo == 'hfp' and not stato['source']:
-                descrizione += '\nMicrofono non ancora disponibile.'
-            uscita = 'predefinita' if stato['sink'] and stato['sink'] == stato['default_sink'] else 'disponibile' if stato['sink'] else 'non disponibile'
-            microfono = 'predefinito' if stato['source'] and stato['source'] == stato['default_source'] else 'disponibile' if stato['source'] else 'non attivo'
-            dettagli = f'Uscita {uscita} · Microfono {microfono}'
+                descrizione += tr('\nMicrofono non ancora disponibile.')
+            uscita = tr('predefinita') if stato['sink'] and stato['sink'] == stato['default_sink'] else tr('disponibile') if stato['sink'] else tr('non disponibile')
+            microfono = tr('predefinito') if stato['source'] and stato['source'] == stato['default_source'] else tr('disponibile') if stato['source'] else tr('non attivo')
+            dettagli = tr('Uscita {v0} · Microfono {v1}').format(v0=uscita, v1=microfono)
         if self.audio_dettagli is not None and self.audio_dettagli.get_text() != dettagli:
             self.audio_dettagli.set_text(dettagli)
         registrazione = ''
         if self.prova_sessione is not None:
             if self.prova_sessione.pronto:
                 if self.prova_sessione.incompleta:
-                    registrazione = (f'\nRegistrazione incompleta: ricevuti {self.prova_sessione.durata:.1f} s '
-                                     'di audio in 10 s. Puoi salvarla o ripetere REC.')
+                    registrazione = (tr('\nRegistrazione incompleta: ricevuti {v0:.1f} s di audio in 10 s. Puoi salvarla o ripetere REC.').format(v0=self.prova_sessione.durata))
                 else:
-                    registrazione = f'\nRegistrazione pronta · {self.prova_sessione.durata:.1f} secondi'
+                    registrazione = tr('\nRegistrazione pronta · {v0:.1f} secondi').format(v0=self.prova_sessione.durata)
             elif self.operazione is None or self.prova_sessione.chiuso:
-                registrazione = '\nNessuna registrazione disponibile. Ripeti REC in modalità HFP.'
+                registrazione = tr('\nNessuna registrazione disponibile. Ripeti REC in modalità HFP.')
         esito_audio = self.messaggio_audio
-        if any(t in esito_audio.lower() for t in ('non riuscit', 'non disponibile', 'nessun messaggio', 'interrott', 'scadut')):
+        if any(t in esito_audio.lower() for t in ('non riuscit', 'non disponibile', 'nessun messaggio', 'interrott', 'scadut', 'failed', 'unavailable', 'no valid recording', 'stopped before', 'timed out')):
             if messaggio is not None:
                 self._conserva_dettaglio('Audio', esito_audio)
-            esito_audio = 'Operazione non riuscita: ' + self._errore_leggibile(esito_audio)
-        elif esito_audio in ('Operazione completata.', 'Messaggio registrato. Premi “Test audio” per ascoltarlo.',
-                             'Messaggio registrato riprodotto.'):
+            esito_audio = tr('Operazione non riuscita: ') + self._errore_leggibile(esito_audio)
+        elif esito_audio in (tr('Operazione completata.'), tr('Messaggio registrato. Premi “Test audio” per ascoltarlo.'),
+                             tr('Messaggio registrato riprodotto.')):
             esito_audio = ''
         esito = registrazione + (f'\n{esito_audio}' if esito_audio else '')
         testo = f'{self.nome_dispositivo_audio} · {descrizione}{esito}'
@@ -2188,7 +2290,7 @@ class ObynApplication(Gtk.Application):
                     pulsante.remove_css_class('obyn-mode')
             if azione == 'auto_connect':
                 attiva = self.dispositivo_audio is not None and self.config.get('auto_connect') == self.dispositivo_audio
-                testo = 'Tentativo all’avvio: ' + ('attiva' if attiva else 'spenta')
+                testo = tr('Tentativo all’avvio: ') + (tr('attiva') if attiva else tr('spenta'))
                 if pulsante.get_label() != testo:
                     pulsante.set_label(testo)
         if self.volume_slider is not None:
@@ -2248,12 +2350,12 @@ class ObynApplication(Gtk.Application):
         prova = self.prova_sessione
         if prova is None or not prova.pronto or self.dialogo_salvataggio is not None:
             return
-        dialogo = Gtk.FileChooserNative.new('Salva una copia della registrazione',
+        dialogo = Gtk.FileChooserNative.new(tr('Salva una copia della registrazione'),
             self.finestra, Gtk.FileChooserAction.SAVE, 'Salva', 'Annulla')
         dialogo.set_modal(True)
         dialogo.set_current_name('messaggio-microfono.wav')
         filtro = Gtk.FileFilter()
-        filtro.set_name('Audio WAV')
+        filtro.set_name(tr('Audio WAV'))
         filtro.add_pattern('*.wav')
         dialogo.add_filter(filtro)
         dialogo.connect('response', self._messaggio_destinazione, prova)
@@ -2269,14 +2371,14 @@ class ObynApplication(Gtk.Application):
                 return
             with prova.lock:
                 if prova is not self.prova_sessione or prova.chiuso or not prova.pronto:
-                    raise RuntimeError('Il messaggio temporaneo non è più disponibile.')
+                    raise RuntimeError(tr('Il messaggio temporaneo non è più disponibile.'))
                 dati = Path(prova.percorso).read_bytes()
                 destinazione.replace_contents(dati, None, False, Gio.FileCreateFlags.NONE, None)
-            self.messaggio_audio = 'Copia salvata: ' + destinazione.get_parse_name()
-            self._log('Salvataggio', self.messaggio_audio)
+            self.messaggio_audio = tr('Copia salvata: ') + destinazione.get_parse_name()
+            self._log(tr('Salvataggio'), self.messaggio_audio)
         except (OSError, GLib.Error, RuntimeError) as exc:
-            self.messaggio_audio = 'Salvataggio non riuscito: ' + str(exc)
-            self._conserva_dettaglio('Salvataggio', self.messaggio_audio)
+            self.messaggio_audio = tr('Salvataggio non riuscito: ') + str(exc)
+            self._conserva_dettaglio(tr('Salvataggio'), self.messaggio_audio)
         finally:
             dialogo.destroy()
             if self.dialogo_salvataggio is dialogo:
@@ -2291,13 +2393,13 @@ class ObynApplication(Gtk.Application):
             self._salva_messaggio()
             return
         if not self.dispositivo_audio:
-            self.audio_info.set_text('Prima seleziona il dispositivo desiderato.')
+            self.audio_info.set_text(tr('Prima seleziona il dispositivo desiderato.'))
             return
-        self.audio_info.set_text('Operazione audio in corso…')
+        self.audio_info.set_text(tr('Operazione audio in corso…'))
         if azione == 'test_microfono':
             self._cancella_messaggio()
             self.prova_sessione = MessaggioAudio()
-            self.audio_info.set_text('Preparazione della registrazione…')
+            self.audio_info.set_text(tr('Preparazione della registrazione…'))
             self._avvia_operazione('audio', self._azione_audio, azione, self.dispositivo_audio, None, self.prova_sessione)
         else:
             self._avvia_operazione('audio', self._azione_audio, azione, self.dispositivo_audio)
@@ -2305,17 +2407,17 @@ class ObynApplication(Gtk.Application):
 
     def _registra_preparando_microfono(self, mac, prova):
         if prova is None or prova.chiuso:
-            raise RuntimeError('Sessione di registrazione non disponibile.')
+            raise RuntimeError(tr('Sessione di registrazione non disponibile.'))
         iniziale = AudioPipewire.leggi(mac)
         precedente = iniziale.get('active')
         tipo = AudioPipewire.tipo_profilo(precedente)
         if not iniziale.get('connected') or not tipo:
-            raise RuntimeError('Dispositivo disconnesso o modalità audio non verificata.')
+            raise RuntimeError(tr('Dispositivo disconnesso o modalità audio non verificata.'))
         errore = None
         try:
             stato = AudioPipewire.cambia_profilo(mac, 'hfp')
             if prova.chiuso:
-                raise RuntimeError('Registrazione cancellata alla chiusura della finestra.')
+                raise RuntimeError(tr('Registrazione cancellata alla chiusura della finestra.'))
             prova.registra(stato['source'], lambda: GLib.idle_add(self._registrazione_iniziata, prova))
         except Exception as exc:
             errore = str(exc)
@@ -2323,7 +2425,7 @@ class ObynApplication(Gtk.Application):
             # Anche WirePlumber può cambiare profilo alla fine della cattura.
             stato = AudioPipewire.cambia_profilo(mac, tipo, profilo_esatto=precedente)
         except Exception as exc:
-            ripristino = 'Ripristino della modalità precedente non riuscito: ' + str(exc)
+            ripristino = tr('Ripristino della modalità precedente non riuscito: ') + str(exc)
             errore = (errore + '\n' if errore else '') + ripristino
         if errore:
             raise RuntimeError(errore)
@@ -2331,26 +2433,26 @@ class ObynApplication(Gtk.Application):
 
     def _azione_audio(self, azione, mac, volume=None, prova=None):
         stato = {}
-        messaggio = 'Operazione completata.'
+        messaggio = tr('Operazione completata.')
         try:
             if azione == 'auto_connect':
                 if self.config.get('auto_connect') == mac:
                     self.config.pop('auto_connect')
-                    messaggio = 'Riconnessione all’avvio disattivata.'
+                    messaggio = tr('Riconnessione all’avvio disattivata.')
                 else:
                     self.config['auto_connect'] = mac
-                    messaggio = 'Riconnessione all’avvio attivata.'
+                    messaggio = tr('Riconnessione all’avvio attivata.')
                 self.salva_config()
             elif azione == 'test_microfono':
                 stato = self._registra_preparando_microfono(mac, prova)
-                messaggio = ('Il flusso del microfono non ha fornito la durata attesa.' if prova.incompleta
-                             else 'Messaggio registrato. Premi “Test audio” per ascoltarlo.')
+                messaggio = (tr('Il flusso del microfono non ha fornito la durata attesa.') if prova.incompleta
+                             else tr('Messaggio registrato. Premi “Test audio” per ascoltarlo.'))
             else:
                 # Rileggere prima di agire: il dispositivo può essersi spento
                 # dopo l'ultimo aggiornamento della finestra.
                 stato = AudioPipewire.leggi(mac)
                 if not stato['connected']:
-                    raise RuntimeError('Il dispositivo è disconnesso.')
+                    raise RuntimeError(tr('Il dispositivo è disconnesso.'))
                 sink, source = stato['sink'], stato['source']
                 if azione in {'a2dp', 'hfp'}:
                     stato = AudioPipewire.cambia_profilo(mac, azione)
@@ -2362,24 +2464,24 @@ class ObynApplication(Gtk.Application):
                     prova = self.prova_sessione
                     if prova is not None:
                         if not prova.pronto:
-                            raise RuntimeError('Nessun messaggio valido. ' + (prova.errore or 'Ripeti “Prova microfono”.'))
+                            raise RuntimeError(tr('Nessun messaggio valido. ') + (prova.errore or tr('Ripeti “Prova microfono”.')))
                         prova.riproduci(sink)
-                        messaggio = 'Messaggio registrato riprodotto.'
+                        messaggio = tr('Messaggio registrato riprodotto.')
                     else:
                         AudioPipewire.comando(['paplay', f'--device={sink}', '/usr/share/sounds/alsa/Front_Center.wav'])
                 else:
-                    raise RuntimeError('Funzione non disponibile nello stato audio corrente.')
+                    raise RuntimeError(tr('Funzione non disponibile nello stato audio corrente.'))
             if azione not in {'a2dp', 'hfp', 'test_microfono'}:
                 stato = AudioPipewire.leggi(mac)
         except Exception as exc:
-            messaggio = f'Operazione audio non riuscita: {exc}'
+            messaggio = tr('Operazione audio non riuscita: {v0}').format(v0=exc)
             # Un cambio parzialmente riuscito può avere alterato profili e nodi.
             try:
                 stato = AudioPipewire.leggi(mac, time.monotonic() + 3)
             except Exception:
                 stato = {}
         if azione in {'uscita', 'microfono'}:
-            if messaggio.startswith('Operazione audio non riuscita:'):
+            if messaggio.startswith(tr('Operazione audio non riuscita:')):
                 GLib.idle_add(self._conserva_dettaglio, 'Audio', messaggio)
             messaggio = ''
             try:
@@ -2402,8 +2504,8 @@ class ObynApplication(Gtk.Application):
 
     def _registrazione_iniziata(self, prova):
         if prova is self.prova_sessione and not prova.chiuso:
-            self._log('Registrazione', 'Cattura iniziata')
-            self.audio_info.set_text('Registrazione in corso: parla ora (massimo 10 secondi). Nessun riascolto automatico.')
+            self._log(tr('Registrazione'), tr('Cattura iniziata'))
+            self.audio_info.set_text(tr('Registrazione in corso: parla ora (massimo 10 secondi). Nessun riascolto automatico.'))
             if self.ferma_registrazione_button is not None:
                 self.ferma_registrazione_button.set_visible(True)
                 self.ferma_registrazione_button.set_sensitive(True)
@@ -2415,7 +2517,7 @@ class ObynApplication(Gtk.Application):
         return False
 
     def _ferma_registrazione(self, *_):
-        self._log('Registrazione', 'Arresto richiesto')
+        self._log(tr('Registrazione'), tr('Arresto richiesto'))
         if self.prova_sessione is not None:
             self.prova_sessione.stop.set()
         if self.ferma_registrazione_button is not None:
@@ -2433,7 +2535,7 @@ class ObynApplication(Gtk.Application):
         if self.ferma_registrazione_button is not None:
             self.ferma_registrazione_button.set_visible(False)
         if self.audio_info is not None:
-            self.audio_info.set_text('Messaggio temporaneo cancellato. Seleziona un dispositivo per i controlli.')
+            self.audio_info.set_text(tr('Messaggio temporaneo cancellato. Seleziona un dispositivo per i controlli.'))
 
     def avvia_scansione(self, *_):
         if self.operazione is not None:
@@ -2444,16 +2546,16 @@ class ObynApplication(Gtk.Application):
         self.ricerca_eseguita = False
         self.visti_scansione.clear()
         self.ferma_scansione_evento.clear()
-        self.stato.set_text('Avvio della ricerca Bluetooth…')
+        self.stato.set_text(tr('Avvio della ricerca Bluetooth…'))
         if self.pulsante_ferma is not None:
             self.pulsante_ferma.set_sensitive(True)
         self._avvia_operazione('scansione', self._scansiona)
 
     def ferma_scansione(self, *_):
-        self._log('Ricerca', 'Arresto richiesto')
+        self._log(tr('Ricerca'), tr('Arresto richiesto'))
         if self.operazione == 'scansione' or (self.operazione == 'ricerca_connessione' and not self.connessione_in_corso):
             self.ferma_scansione_evento.set()
-            self.stato.set_text('Arresto della ricerca…')
+            self.stato.set_text(tr('Arresto della ricerca…'))
             if self.pulsante_ferma is not None:
                 self.pulsante_ferma.set_sensitive(False)
 
@@ -2467,7 +2569,7 @@ class ObynApplication(Gtk.Application):
                 controller = comando_bt('show')
                 match = re.search(r'^Controller\s+([0-9A-F:]{17})', controller, re.M | re.I)
                 if not match:
-                    raise RuntimeError('Controller Bluetooth non disponibile. ' + controller)
+                    raise RuntimeError(tr('Controller Bluetooth non disponibile. ') + controller)
                 ricerca = RicercaBluez(match.group(1))
                 ricerca.esegui(self.ferma_scansione_evento, lambda dispositivi, visti:
                     GLib.idle_add(self._ricevi_scansione, dispositivi, visti, False, ''))
@@ -2481,7 +2583,7 @@ class ObynApplication(Gtk.Application):
             self.visti_scansione = visti
             self.ultimi_dispositivi_scansione = dispositivi
         if conclusa:
-            self._log('Ricerca', f'Terminata · {len(self.visti_scansione)} dispositivi osservati · annullata={self.ferma_scansione_evento.is_set()}')
+            self._log(tr('Ricerca'), tr('Terminata · {v0} dispositivi osservati · annullata={v1}').format(v0=len(self.visti_scansione), v1=self.ferma_scansione_evento.is_set()))
             self.scansione = False
         if self.ricerca_eseguita:
             self._mostra_dispositivi(self.ultimi_dispositivi_scansione)
@@ -2489,27 +2591,52 @@ class ObynApplication(Gtk.Application):
         if errore:
             errore = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', errore)
             if 'NotReady' in errore:
-                motivo = 'Il controller Bluetooth non è pronto. Verifica che sia acceso e non bloccato.'
+                motivo = tr('Il controller Bluetooth non è pronto. Verifica che sia acceso e non bloccato.')
             elif 'NotAuthorized' in errore or 'AccessDenied' in errore:
-                motivo = 'Il sistema non ha autorizzato la ricerca Bluetooth.'
+                motivo = tr('Il sistema non ha autorizzato la ricerca Bluetooth.')
             elif 'ServiceUnknown' in errore or 'NameHasNoOwner' in errore:
-                motivo = 'Il servizio Bluetooth non è disponibile.'
+                motivo = tr('Il servizio Bluetooth non è disponibile.')
             else:
-                motivo = 'Ricerca Bluetooth non riuscita o interrotta.'
+                motivo = tr('Ricerca Bluetooth non riuscita o interrotta.')
             self._conserva_dettaglio('Bluetooth', errore)
             self.stato.set_text(motivo + ' ' + self._errore_leggibile(errore))
         elif conclusa:
-            fine = 'Ricerca fermata' if self.ferma_scansione_evento.is_set() else 'Ricerca conclusa'
+            fine = tr('Ricerca fermata') if self.ferma_scansione_evento.is_set() else tr('Ricerca conclusa')
             if self.ricerca_eseguita:
-                self.stato.set_text(f'{fine}: {quanti} dispositiv{"o" if quanti == 1 else "i"} osservat{"o" if quanti == 1 else "i"}. '
-                                    'La presenza dei dispositivi salvati non osservati non è verificata.')
+                self.stato.set_text(fine + ': ' + ngettext('{count} dispositivo osservato.', '{count} dispositivi osservati.', quanti).format(count=quanti) + ' ' + tr('La presenza dei dispositivi salvati non osservati non è verificata.'))
             else:
-                self.stato.set_text('Ricerca annullata prima dell’avvio.')
+                self.stato.set_text(tr('Ricerca annullata prima dell’avvio.'))
         elif self.ferma_scansione_evento.is_set():
-            self.stato.set_text('Arresto della ricerca…')
+            self.stato.set_text(tr('Arresto della ricerca…'))
         else:
-            self.stato.set_text(f'Ricerca attiva (massimo 30 secondi): {quanti} dispositiv{"o" if quanti == 1 else "i"} osservat{"o" if quanti == 1 else "i"}. '
-                                'Per un nuovo dispositivo, attiva la sua modalità di associazione.')
+            self.stato.set_text(tr('Ricerca attiva (massimo 30 secondi): ') + ngettext('{count} dispositivo osservato.', '{count} dispositivi osservati.', quanti).format(count=quanti) + ' ' + tr('Per un nuovo dispositivo, attiva la sua modalità di associazione.'))
+        return False
+
+    def _scegli_lingua(self, lingua, avviso):
+        precedente = self.config.get('language', 'auto')
+        self.config['language'] = lingua
+        try:
+            self.salva_config()
+        except OSError as exc:
+            self.config['language'] = precedente
+            avviso.set_text(tr('Preferenza non salvata: ') + str(exc))
+            return
+        avviso.set_text(tr('La lingua cambierà alla prossima apertura di OBYN. Esci dal tray e riapri l’app.'))
+
+    def _crea_opzioni_popup(self, menu, *_args):
+        popover = Gtk.Popover()
+        popover.add_css_class('obyn-info')
+        popover.set_autohide(True)
+        self._prepara_opzioni_dispositivo(popover)
+        menu.set_popover(popover)
+        # Rebuild for the next selected device, after GTK has released its grab.
+        popover.connect('closed', lambda popup:
+            GLib.idle_add(self._rilascia_opzioni_popup, menu, popup))
+
+    @staticmethod
+    def _rilascia_opzioni_popup(menu, popover):
+        if menu.get_popover() is popover and not popover.get_visible():
+            menu.set_popover(None)
         return False
 
     def _prepara_opzioni_dispositivo(self, popover):
@@ -2522,16 +2649,40 @@ class ObynApplication(Gtk.Application):
         opzioni.append(versione)
         contatto = Gtk.LinkButton.new_with_label(
             'mailto:balthasar2222@gmail.com?subject=OBYN%20-%20Personalizzazione',
-            'Richiedi una personalizzazione')
-        contatto.set_tooltip_text('Scrivi a balthasar2222@gmail.com')
+            tr('Richiedi una personalizzazione'))
+        contatto.set_tooltip_text(tr('Scrivi a balthasar2222@gmail.com'))
         opzioni.append(contatto)
         sostegno = Gtk.LinkButton.new_with_label(
-            'https://paypal.me/colbren15df', 'Sostieni OBYN')
-        sostegno.set_tooltip_text('Contributo volontario tramite PayPal')
+            'https://paypal.me/colbren15df', tr('Sostieni OBYN'))
+        sostegno.set_tooltip_text(tr('Contributo volontario tramite PayPal'))
         opzioni.append(sostegno)
+        opzioni.append(Gtk.Label(label=tr('Lingua'), xalign=0))
+        # Inline choices avoid a nested popup and its competing input grab.
+        scelte_lingua = Gtk.Box(spacing=4, homogeneous=True)
+        scelte_lingua.add_css_class('language-choices')
+        opzioni.append(scelte_lingua)
+        avviso_lingua = Gtk.Label(label='', wrap=True, xalign=0, max_width_chars=30)
+        opzioni.append(avviso_lingua)
+        preferita = self.config.get('language', 'auto')
+        if preferita not in ('it', 'en'):
+            preferita = 'auto'
+        gruppo = None
+        for codice, etichetta in (('auto', 'Auto'), ('it', 'Italiano'), ('en', 'English')):
+            scelta = Gtk.ToggleButton(label=etichetta)
+            if gruppo is None:
+                gruppo = scelta
+            else:
+                scelta.set_group(gruppo)
+            scelta.set_active(codice == preferita)
+            if codice == 'auto':
+                scelta.set_tooltip_text(tr('Automatica (sistema)'))
+            scelta.connect('toggled', lambda widget, lingua=codice:
+                self._scegli_lingua(lingua, avviso_lingua) if widget.get_active() else None)
+            scelte_lingua.append(scelta)
+
         dispositivo = next((d for d in self.dispositivi_visualizzati if d[0] == self.dispositivo_audio), None)
         if dispositivo is None:
-            opzioni.append(Gtk.Label(label='Seleziona una scheda per vedere informazioni e opzioni.', wrap=True, max_width_chars=32))
+            opzioni.append(Gtk.Label(label=tr('Seleziona una scheda per vedere informazioni e opzioni.'), wrap=True, max_width_chars=32))
             return
         mac, nome, stato = dispositivo
         titolo = Gtk.Label(label=nome, xalign=0)
@@ -2539,16 +2690,16 @@ class ObynApplication(Gtk.Application):
         titolo.set_max_width_chars(36)
         titolo.add_css_class('heading')
         opzioni.append(titolo)
-        presenza = ('Rilevato ora' if self.scansione else 'Rilevato nell’ultima ricerca') if mac.upper() in self.visti_scansione else 'Presenza non verificata dalla ricerca'
+        presenza = (tr('Rilevato ora') if self.scansione else tr('Rilevato nell’ultima ricerca')) if mac.upper() in self.visti_scansione else tr('Presenza non verificata dalla ricerca')
         dettagli = self._dicitura_dispositivo(stato) + '\n' + presenza + '\n' + mac
         testo_info = Gtk.Label(label=dettagli, xalign=0, wrap=True, selectable=True)
         testo_info.set_focusable(False)
         testo_info.set_max_width_chars(36)
         opzioni.append(testo_info)
-        avanzate = Gtk.Expander(label='Avanzate · modalità audio')
+        avanzate = Gtk.Expander(label=tr('Avanzate · modalità audio'))
         profili = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         profili.set_margin_top(8)
-        for testo, azione in [('Ascolto · A2DP', 'a2dp'), ('Voce e microfono · HFP', 'hfp')]:
+        for testo, azione in [(tr('Ascolto · A2DP'), 'a2dp'), (tr('Voce e microfono · HFP'), 'hfp')]:
             profilo = PulsanteAttesa(label=testo)
             profilo.connect('clicked', self._memorizza_pulsante)
             profilo.set_sensitive(bool(stato['connected']))

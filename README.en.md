@@ -68,3 +68,15 @@ No payment or message is sent automatically. Not published on AUR yet.
 Reusable components are available as `obyn-components-0.1.2.zip` in the release.
 Extract the collection into `reusable/obyn-components` to run the optional
 link-contrast smoke test, which also checks the reusable author header.
+
+## REC level meter — Arch revision 0.1.2-2
+
+During recording, the volume bar becomes a microphone level meter using the
+current theme color, then returns to the volume control. It reads recorded
+PCM from the WAV file on a −60..0 dBFS scale, subject to recorder buffering,
+without opening another audio stream. Included in package 0.1.2-2.
+The user also confirmed 0.1.2-1 installation, connections, recording/playback
+and theme switching on their Manjaro KDE mini PC.
+
+The meter animates at approximately 30 frames per second, with fast attack
+and gradual release; audio reads remain limited to 10 Hz.

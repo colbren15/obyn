@@ -1,5 +1,13 @@
 # Changelog
 
+## Revisione Arch 0.1.2-2 — 13 settembre 2026
+
+- Indicatore REC del livello microfono, con animazione fluida e ingombro invariato.
+- Letture audio limitate a 10 Hz; timer soltanto durante cattura.
+- Indicatore e fluidità confermati dall’utente; release precedente verificata su Manjaro KDE.
+- Modulo recording aggiornato nella raccolta riutilizzabile 0.1.3.
+
+
 ## 0.1.2 — 13 settembre 2026
 
 Pre-release Arch 0.1.2-1.

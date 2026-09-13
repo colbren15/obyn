@@ -256,3 +256,17 @@ La versione 0.1.2 include questi aggiornamenti.
 Il log si chiude anche cliccando nel resto dell’app o passando a un’altra
 finestra, senza cancellare gli eventi. Il clic esterno non attiva i controlli
 sottostanti. I pulsanti del log condividono l’hover delle impostazioni.
+
+## Indicatore REC — revisione Arch 0.1.2-2
+
+Durante REC la barra del volume mostra il livello del microfono registrato,
+con la stessa tonalità del tema. Al termine torna il controllo Volume.
+Il livello usa il segnale scritto nel WAV (scala −60..0 dBFS) e può seguire
+con un breve ritardo il buffering del registratore. Nessun secondo ingresso
+audio viene aperto. Questa aggiunta è inclusa nel pacchetto 0.1.2-2.
+
+L’utente ha confermato installazione, connessioni, registrazione/riascolto e
+cambio tema della release 0.1.2-1 anche sul proprio mini PC Manjaro KDE.
+
+Il movimento dell’indicatore è smussato a circa 30 fotogrammi al secondo,
+con salita rapida e discesa graduale; le letture audio restano limitate a 10 Hz.

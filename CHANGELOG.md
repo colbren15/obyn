@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — 13 settembre 2026
+
+Pre-release Arch 0.1.2-1.
+
+- Italiano/inglese con gettext, plurali e preferenza automatica/manuale.
+- Tray e nuove descrizioni del log nella lingua dell’app; diagnostica esterna invariata.
+- Link del popover leggibili con accenti diversi del tema di sistema.
+- README inglese, cataloghi installabili e modulo languages riutilizzabile.
+- Chiusura dei pannelli con clic esterno e hover coerente nei pulsanti del log.
+- Build Arch pulita: 151 test, cataloghi, aggiornamento e conservazione configurazione.
+
+
 ## 0.1.1 — 12 settembre 2026
 
 - Tema regolabile in tonalità, anteprima e preferenza persistente.

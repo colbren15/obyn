@@ -23,6 +23,8 @@ cat > "$UNIT_DIR/$PATH_NAME" <<EOF
 Description=Osserva i sorgenti locali di OBYN
 
 [Path]
+PathChanged=$SOURCE_DIR/locale/en/LC_MESSAGES/obyn.mo
+PathChanged=$SOURCE_DIR/locale/it/LC_MESSAGES/obyn.mo
 PathChanged=$SOURCE_DIR/src/obyn.py
 PathChanged=$SOURCE_DIR/src/obyn_tray.cpp
 PathChanged=$SOURCE_DIR/data/io.obyn.Bluetooth.desktop

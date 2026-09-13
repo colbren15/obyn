@@ -13,6 +13,11 @@ install -m 0644 "$SCRIPT_DIR/data/io.obyn.Bluetooth-symbolic.svg" "$ICON_DIR/sca
 if command -v gtk-update-icon-cache >/dev/null; then
   gtk-update-icon-cache -f -t "$ICON_DIR" >/dev/null 2>&1 || true
 fi
+# Install catalogs before the executable so the watcher never exposes missing translations.
+for language in it en; do
+  install -Dm644 "$SCRIPT_DIR/locale/$language/LC_MESSAGES/obyn.mo" \
+    "${XDG_DATA_HOME:-$HOME/.local/share}/obyn/locale/$language/LC_MESSAGES/obyn.mo"
+done
 install -m 0755 "$SCRIPT_DIR/src/obyn.py" "$BIN_DIR/obyn"
 g++ -std=c++17 -O2 -fPIC -pie "$SCRIPT_DIR/src/obyn_tray.cpp" -o "$BIN_DIR/obyn-tray" \
   -I/usr/include/qt6 -I/usr/include/qt6/QtCore -I/usr/include/qt6/QtGui \

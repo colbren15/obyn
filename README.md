@@ -1,8 +1,10 @@
 # OBYN — Only Bluetooth You Need
 
+**Italiano** | [English](README.en.md)
+
 **Autore: Daniele Frasca.**
 
-**Versione 0.1.1 — prototipo funzionante per Arch Linux/KDE.**
+**Versione di prova 0.1.2 — prototipo funzionante per Arch Linux/KDE.**
 
 OBYN è un gestore Bluetooth grafico autonomo, indipendente da ADA. Usa BlueZ
 per i collegamenti e PipeWire/PulseAudio per l’audio. Licenza GPL-3.0-or-later.
@@ -134,23 +136,27 @@ reinstallazione esplicita.
 
 L’utente ha verificato sull’M50 connessione, aggiornamento dopo riaccensione,
 registrazione, volume e comportamento degli interruttori; l’ultima conferma
-è del 12 settembre 2026. I 147 test automatici coprono backend e coordinamento
+è del 12 settembre 2026. I 151 test automatici coprono backend e coordinamento
 con simulazioni, senza garantire compatibilità con ogni hardware.
 
 I problemi dei Nothing ear (1), sospettati difettosi dall’utente, non sono stati
 risolti né usati come criterio bloccante. Serve un secondo dispositivo
 sicuramente funzionante prima di estendere le garanzie di compatibilità.
-Il pacchetto Arch/KDE include gli ultimi aggiornamenti. I limiti delle verifiche
-sono descritti nella release. Altre distribuzioni restano da verificare. Il gestore Bluetooth completo di sistema è un’idea
-rimandata, non una funzione annunciata per questa versione.
+Il pacchetto 0.1.2-1 è stato compilato e verificato in un container Arch pulito,
+inclusi installazione, aggiornamento da 0.1.1-5, cataloghi e rimozione.
+La configurazione di prova è rimasta identica. M50 e cambio tema sono stati
+verificati dall’utente anche in una live EndeavourOS KDE con la versione
+precedente; lingue e popup sono stati confermati sul profilo di sviluppo.
+Altri desktop e hardware restano da verificare. Il gestore Bluetooth completo
+di sistema è un’idea rimandata, non una funzione annunciata per questa versione.
 
 OBYN è software libero GPL-3.0-or-later. Vedi [LICENSE](LICENSE).
 
 ## Componenti salvati per il riuso
 
-La raccolta autonoma di dodici moduli contiene backend Bluetooth/audio e
-componenti grafici, con esempi, test e licenza. È disponibile come
-[obyn-components-0.1.0.zip nelle release](https://github.com/colbren15/obyn/releases).
+La raccolta autonoma di tredici moduli comprende backend Bluetooth/audio,
+componenti grafici e gestione delle lingue, con esempi, test e licenza.
+È disponibile come [obyn-components-0.1.2.zip nelle release](https://github.com/colbren15/obyn/releases).
 È una copia separata: OBYN non la importa e gli aggiornamenti non si
 sincronizzano automaticamente.
 
@@ -224,7 +230,29 @@ volontario, senza importo prestabilito. Il pulsante nelle informazioni apre
 la pagina PayPal; non effettua pagamenti automaticamente. Tutte le funzioni
 dell’app rimangono disponibili anche senza contribuire.
 
-## Distribuzione
+## Distribuzione pubblica
 
-Versione di prova per Arch Linux/KDE. Repository: https://github.com/colbren15/obyn.
-I pacchetti scaricabili sono nella sezione Releases. Non pubblicato su AUR.
+Repository: [colbren15/obyn](https://github.com/colbren15/obyn).
+[Versione di prova Arch 0.1.2-1](https://github.com/colbren15/obyn/releases/tag/v0.1.2-1),
+con pacchetto, sorgenti e moduli riutilizzabili. Non pubblicato su AUR.
+
+## Contrasto dei collegamenti
+
+I link di contatto e sostegno mantengono il testo chiaro sulla superficie
+del popover anche con accenti del tema di sistema diversi. Il focus resta
+visibile e il colore segue la tonalità personalizzata. Correzione inclusa nella versione 0.1.2.
+
+## Lingua dell’app
+
+Italiano e inglese, con rilevamento della lingua del sistema e ripiego inglese
+per le lingue non supportate. Nell’ingranaggio puoi scegliere Auto (lingua del sistema),
+Italiano o English, anche senza un dispositivo selezionato. La preferenza
+si applica dopo Esci da OBYN nel tray e successiva riapertura. Le nuove voci
+del log generate dall’app seguono la lingua scelta; risposte esterne, MAC
+e nomi dei dispositivi restano originali. I dialoghi GTK di sistema seguono
+la lingua del desktop. Le traduzioni sono in po/, manutenzione in po/README.md.
+La versione 0.1.2 include questi aggiornamenti.
+
+Il log si chiude anche cliccando nel resto dell’app o passando a un’altra
+finestra, senza cancellare gli eventi. Il clic esterno non attiva i controlli
+sottostanti. I pulsanti del log condividono l’hover delle impostazioni.

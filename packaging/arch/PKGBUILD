@@ -2,7 +2,7 @@
 # Pacchetto locale: generare l'archivio con prepare-source.py prima di makepkg.
 pkgname=obyn
 pkgver=0.1.2
-pkgrel=1
+pkgrel=2
 pkgdesc='Only Bluetooth You Need - graphical Bluetooth manager for Linux'
 arch=('x86_64')
 license=('GPL-3.0-or-later')
@@ -15,7 +15,7 @@ checkdepends=('desktop-file-utils')
 options=('!debug')
 source=("$pkgname-$pkgver.tar.gz")
 # Aggiornato da prepare-source.py usando soltanto file del repository.
-sha256sums=('7f03fbc4f5d1117f3da88d21a0b6ad313897b45647cd223d9f4376793a40b151')
+sha256sums=('b4fe5340d3bab5e90810dc706d18c98da2e930993e33b35ac46eced55f60c1ca')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
